@@ -118,9 +118,7 @@ Outline Mindmap is a desktop Obsidian plugin that renders the current note as a 
 
 ### Lifetime License
 
-One purchase, lifetime use on a single device. Pro features are **Elegant Animation** and **Mind Map Styles** (multiple layouts, line styles, and theme templates). Price: ¥22. Purchase link:
-
-https://www.ifdian.net/item/ebbed5ea922311f1a5e85254001e7c00?utm_source=copylink&utm_medium=link
+One purchase, lifetime use on a single device. Pro features are **Elegant Animation** and **Mind Map Styles** (multiple layouts, line styles, and theme templates). Price: ¥22. Contact me.
 
 ### Activation Steps
 
