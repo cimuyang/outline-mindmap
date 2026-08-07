@@ -1,6 +1,6 @@
 {
 	"id": "outline-mindmap",
-	"name": "大纲思维导图",
+	"name": "Outline Mindmap",
 	"version": "0.1.0",
 	"minAppVersion": "1.0.0",
 	"description": "Minimalist & Intuitive Outline Mind Map: Pure Markdown syntax with zero code pollution in your note files; click-to-navigate with real-time bi-directional sync between mind map and notes.",
