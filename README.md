@@ -3,7 +3,7 @@ Minimalist and intuitive outline mind mapping using only the purest Markdown syn
 
 [English](https://github.com/cimuyang/outline-mindmap/edit/main/README.md)    [中文](https://github.com/cimuyang/outline-mindmap/blob/main/readme-zh.md)
 
-![](https://github.com/cimuyang/outline-mindmap/blob/main/demo%20animation.gif)
+![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.gif)
 
 # Outline Mindmap — Obsidian Plugin
 
