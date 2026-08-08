@@ -5,7 +5,7 @@ Minimalist and intuitive outline mind mapping using only the purest Markdown syn
 
 ![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.gif)
 
-Worried about plugin code? You can directly give the code to AI for review.不放心插件代码？可以之间把代码给 AI，让 AI 审核
+Worried about plugin code? You can directly give the code to AI for review.不放心插件代码？可以直接把代码给 AI，让 AI 审核
 
 # Outline Mindmap — Obsidian Plugin
 
