@@ -1,3 +1,5 @@
+Worried about plugin code? You can directly give the code to AI for review.不放心插件代码？可以直接把代码给 AI，让 AI 审核
+
 # 大纲思维导图（Outline Mindmap）Obsidian 插件
 
 > 极简直观的大纲思维导图：只用最纯净的 Markdown 语法，笔记文件零多余代码；点一下就能定位，导图与笔记双向实时同步。
