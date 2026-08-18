@@ -7,7 +7,7 @@
 在导图里改一个节点，改的就是笔记里的那一行；在笔记里敲一个字，导图立刻跟着变。
 两边是同一份数据的两个视图，没有第三份状态。
 
-![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.mp4)
+![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.gif)
 
 ## 特色功能
 
