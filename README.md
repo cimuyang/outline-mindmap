@@ -8,7 +8,7 @@ Edit a node in the map and you are editing that line of the note; type a charact
 and the map follows immediately. They are two views of one piece of data — there is no third
 copy of the state.
 
-- **Obsidian** 1.5.0+ · desktop and mobile · **v1.1.0**
+![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.mp4)
 
 ## Features
 
