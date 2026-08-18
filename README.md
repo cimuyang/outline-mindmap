@@ -10,6 +10,16 @@ copy of the state.
 
 - **Obsidian** 1.5.0+ · desktop and mobile · **v1.1.0**
 
+## Features
+
+1. **Plain Markdown in, clean Markdown out**: Headings and lists become a mindmap on their own — no YAML, no injected properties, no hidden comments. Every setting lives in the plugin's own `data.json`. Your Markdown stays Markdown, and stays usable anywhere.
+2. **Two-way live sync**: Edit the note and the map follows; drag a node and the note updates. Write-back replaces only that line — every byte outside it is untouched — and one action is one undo, so the two sides never drift apart.
+3. **Click to locate**: Click a node and the note scrolls to the matching line and highlights it; double-click to rename. After you add, rename or drag a node, the note stays right where you were working — outline and prose, no seam in between.
+4. **Drag to rearrange**: Drop on a node's top or bottom edge to insert before or after, drop in the middle to make it a child, drop on empty space to start a new root. Cross the 6th level and headings and list items convert automatically — with the body text underneath moving along.
+5. **Keyboard-first**: `Enter` for a sibling, `Tab` for a child, arrow keys to move around, `Delete` to remove a whole subtree, `Esc` to abandon anything without writing a byte. Your hands never leave the keys.
+6. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides. Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
+7. **Smooth animation, if you want it**: Node movement, layout changes and expand/collapse can all glide. It ships off — that smoothness is your call. What never changes: after a collapse, the node you just clicked is still dead centre.
+
 ## Three lines that will never be crossed
 
 1. **Never writes frontmatter, never writes tags.** Every setting and style lives in the
