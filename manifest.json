@@ -1,0 +1,10 @@
+{
+  "id": "outline-mindmap",
+  "name": "Outline Mindmap",
+  "version": "1.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Pure Markdown syntax with zero code pollution in your note files; click-to-navigate with real-time bi-directional sync between mind map and notes.",
+  "author": "cimuyang",
+  "authorUrl": "https://github.com/cimuyang",
+  "isDesktopOnly": false
+}

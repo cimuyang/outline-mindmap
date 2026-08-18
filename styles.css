@@ -1,0 +1,445 @@
+/* outline-mindmap — M3 只读渲染 */
+
+.om-root {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+
+  /* 配色（M8）。默认跟随 Obsidian 主题；具体方案在下面用 om-scheme-* 覆盖这几个变量，
+     节点、连线、落点提示统统只读这几个名字，加配色方案不必再动别的规则。 */
+  --om-accent: var(--interactive-accent);
+  --om-node-border: var(--background-modifier-border);
+  --om-node-border-hover: var(--background-modifier-border-hover);
+  --om-node-bg: var(--background-primary);
+  --om-edge: var(--background-modifier-border);
+
+  /* 折叠按钮的直径（M11）。MindmapView 会按字号缩放写一个内联值盖掉它；
+     这里的默认值是给「JS 还没来得及写」的那一瞬间兜底的。 */
+  --om-toggle-size: 16px;
+}
+
+/* 三套固定配色。用 rgba 字面量而不是主题变量：换成暗色主题也照样成立，
+   而且不依赖 color-mix 这类较新的 CSS 特性。 */
+.om-root.om-scheme-blue {
+  --om-accent: #4a8ef0;
+  --om-node-border: rgba(74, 142, 240, 0.45);
+  --om-node-border-hover: rgba(74, 142, 240, 0.8);
+  --om-node-bg: rgba(74, 142, 240, 0.08);
+  --om-edge: rgba(74, 142, 240, 0.55);
+}
+
+.om-root.om-scheme-green {
+  --om-accent: #3aa675;
+  --om-node-border: rgba(58, 166, 117, 0.45);
+  --om-node-border-hover: rgba(58, 166, 117, 0.8);
+  --om-node-bg: rgba(58, 166, 117, 0.08);
+  --om-edge: rgba(58, 166, 117, 0.55);
+}
+
+.om-root.om-scheme-warm {
+  --om-accent: #e08a3c;
+  --om-node-border: rgba(224, 138, 60, 0.45);
+  --om-node-border-hover: rgba(224, 138, 60, 0.8);
+  --om-node-bg: rgba(224, 138, 60, 0.1);
+  --om-edge: rgba(224, 138, 60, 0.55);
+}
+
+/* 节点形状（M8）。【只改边框与圆角，绝不动 padding】——内边距是 measure.ts 算宽高的依据，
+   在这里改一像素，DOM 就会和布局算出来的盒子对不上，长文字还会多折出一行。 */
+.om-root.om-shape-pill .om-node,
+.om-root.om-shape-pill .om-editor {
+  border-radius: 999px;
+}
+
+.om-root.om-shape-underline .om-node {
+  border-color: transparent;
+  border-bottom-color: var(--om-node-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.om-root.om-shape-underline .om-node.is-selected {
+  border-color: transparent;
+  border-bottom-color: var(--om-accent);
+  box-shadow: none;
+}
+
+/* 悬停与拖拽落点的规则写在后面、选择器却更短，不在这里挡一道的话，
+   一悬停就会冒出一整圈边框，形状白选了 */
+.om-root.om-shape-underline .om-node:not(.is-selected):hover {
+  border-color: transparent;
+  border-bottom-color: var(--om-node-border-hover);
+}
+
+.om-root.om-shape-underline .om-node.is-drop-into {
+  border-color: transparent;
+  border-bottom-color: var(--om-accent);
+}
+
+/*
+ * 优雅动画（M8 设置项，默认关）。M9 的「布局切换动画」用的也是这一条：
+ * 换方向只改节点的 transform，开着这个开关，节点就自己滑过去了。
+ *
+ * 只过渡 transform：它走合成器，不触发重排。宽高一并过渡的话，
+ * 每一帧都要重新布局，节点一多必卡（红线 4）。
+ *
+ * 刚出现（或刚从复用池里认领）的节点由 NodeRenderer 临时关掉过渡，
+ * 否则它们会从原点、或从上一个占用者的位置飞过来。
+ */
+.om-root.om-animated .om-node {
+  transition: transform 140ms ease-out;
+}
+
+.om-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  /* 触屏/触控板的原生手势交给我们自己处理 */
+  touch-action: none;
+  contain: strict;
+}
+
+.om-viewport.is-panning {
+  cursor: grabbing;
+}
+
+/* ── 工具栏（M7）──────────────────────────────────────────── */
+
+/*
+ * 浮在画布上层。侧边栏窄到 200px 时按钮会自动折行，不挤成一条。
+ * 不占布局空间 → 画布尺寸与「适应画布」的计算完全不受它影响。
+ */
+.om-toolbar {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: calc(100% - 12px);
+  padding: 2px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+
+.om-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.om-tool:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.om-tool .svg-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* 平移缩放只作用在这一层，节点自身的 transform 是布局坐标 */
+.om-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.om-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.om-edges {
+  stroke: var(--om-edge);
+  stroke-width: 1.5px;
+  fill: none;
+}
+
+.om-nodes {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.om-node {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center; /* 文字垂直居中 */
+  padding: 6px 12px; /* 必须与 measure.ts 的 PADDING_X / PADDING_Y 一致 */
+  border: 1px solid var(--om-node-border);
+  border-radius: 6px;
+  background: var(--om-node-bg);
+  color: var(--text-normal);
+  font-family: var(--om-font-family, var(--font-text));
+  font-size: var(--om-font-size, var(--font-text-size));
+  line-height: var(--om-line-height, 1.45);
+  cursor: default;
+  user-select: none;
+}
+
+.om-node:not(.is-selected):hover {
+  border-color: var(--om-node-border-hover);
+}
+
+.om-node.is-selected {
+  border-color: var(--om-accent);
+  box-shadow: 0 0 0 1px var(--om-accent);
+}
+
+.om-node-text {
+  width: 100%;
+  /* 断行机会必须与 measure.ts 的 wrap() 一致 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.om-node-text mark {
+  background: var(--text-highlight-bg);
+  color: inherit;
+}
+
+/*
+ * 折叠按钮，放在朝着子节点的那一侧（分支向右 → 右侧；向左的节点见 .is-left）。
+ *
+ * 直径由 --om-toggle-size 决定（MindmapView 按字号缩放注入，M11；默认值在 .om-root 上）。
+ */
+.om-toggle {
+  position: absolute;
+  top: 50%;
+  width: var(--om-toggle-size);
+  height: var(--om-toggle-size);
+  /* 圆心落在节点边缘外 1px 处，与连线的接点对齐 */
+  right: calc(var(--om-toggle-size) / -2 - 1px);
+  margin-top: calc(var(--om-toggle-size) / -2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 50%;
+  background: var(--background-secondary);
+  cursor: pointer;
+}
+
+.om-node:hover .om-toggle,
+.om-toggle:hover {
+  border-color: var(--om-accent);
+}
+
+/*
+ * ::before = 命中区，::after = ＋/− 符号（M11）。
+ *
+ * 【为什么符号要用两层渐变画，而不是一个伪元素一根杠】——伪元素只有两个，命中区必须
+ * 占掉一个；而节点上不能再加真实 DOM，1000 个节点就是 1000 个多出来的元素（红线 4）。
+ */
+
+/*
+ * 命中区：14–16px 的圆点鼠标不好点、手指基本点不中，所以用一块透明的伪元素把可点范围
+ * 撑到 30px 见方。【只往外侧和上下撑，往节点内部只多 3px】——DragController 在
+ * .om-toggle 上跳过拖拽，命中区盖住哪儿，哪儿就拖不动了。
+ */
+.om-toggle::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  bottom: -7px;
+  left: -3px;
+  right: -11px;
+}
+
+/* 横杠常在，竖杠只在折叠时出现 → 展开是「−」，折叠是「+」 */
+.om-toggle::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--om-toggle-size) * 0.22);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 1px;
+  background-image: linear-gradient(var(--text-muted), var(--text-muted));
+}
+
+.om-toggle.is-collapsed::after {
+  background-size:
+    100% 1px,
+    1px 100%;
+  background-image:
+    linear-gradient(var(--text-muted), var(--text-muted)),
+    linear-gradient(var(--text-muted), var(--text-muted));
+}
+
+/*
+ * 朝左生长的节点（分支向左，以及两侧布局的左半边，M9）。
+ * 子节点在左边，折叠按钮就得跟过去——否则它指着的方向是空的。
+ */
+.om-node.is-left .om-toggle {
+  right: auto;
+  left: calc(var(--om-toggle-size) / -2 - 1px);
+}
+
+/* 外侧也跟着翻过去，否则命中区撑向了节点内部 */
+.om-node.is-left .om-toggle::before {
+  left: -11px;
+  right: -3px;
+}
+
+/* ── 拖拽（M6）────────────────────────────────────────────── */
+
+/* 被拖走的整棵子树：置灰但仍看得见，用户要能认出自己搬的是哪一坨 */
+.om-node.is-dragging {
+  opacity: 0.4;
+}
+
+/* 落点 =「成为它的子节点」*/
+.om-node.is-drop-into {
+  border-color: var(--om-accent);
+  background: var(--background-modifier-hover);
+}
+
+/* 落点指示：插到前/后是一条线，放进去是一圈框 */
+.om-drop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  border-top: 2px solid var(--om-accent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.om-drop.is-into {
+  border: 2px dashed var(--om-accent);
+  border-radius: 6px;
+}
+
+.om-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+/* 非法落点：光标就告诉用户「这儿放不下」，不必等松手才报错 */
+.om-viewport.is-dragging.is-drop-invalid {
+  cursor: not-allowed;
+}
+
+/* 落在空白处 = 拖出来成为新的自由根 */
+.om-viewport.is-drop-root::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 2px dashed var(--om-accent);
+  border-radius: 8px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/*
+ * 内联编辑框（M5）。
+ *
+ * 盒模型必须与 .om-node 【逐项一致】：padding、border、font、行高、折行规则。
+ * 差一像素，一进编辑态整块就会跳一下，而且光标位置会和 measure.ts 算出来的宽度对不上。
+ */
+.om-editor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2; /* 盖住底下那个节点 */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center; /* 文字垂直居中（M5 交付物明写） */
+  padding: 6px 12px;
+  border: 1px solid var(--om-accent);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--om-font-family, var(--font-text));
+  font-size: var(--om-font-size, var(--font-text-size));
+  line-height: var(--om-line-height, 1.45);
+  box-shadow: 0 0 0 1px var(--om-accent);
+  /*
+   * 空节点量出来只有 42px 宽，光标挤在里面没法用。
+   * 只放宽编辑框不影响折行：文字长到会折行时（measure.ts 到 320px）盒宽早就超过这里了，
+   * min-width 只在「短到根本不会折行」的情况下起作用。
+   */
+  min-width: 120px;
+}
+
+.om-editor-input {
+  width: 100%;
+  /* 与 .om-node-text 相同，否则折行位置和布局对不上 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+  cursor: text;
+  user-select: text;
+}
+
+/* 跳转后编辑器里的标题行高亮（doc/highlight.ts 的 Decoration.line） */
+.om-jump-line {
+  background: var(--text-selection);
+  border-radius: 3px;
+}
+
+.om-viewport:focus,
+.om-viewport:focus-visible {
+  /* 导图容器只是焦点的落脚点，不该画一圈焦点框 */
+  outline: none;
+}
+
+.om-empty {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.om-empty.is-visible {
+  display: flex;
+}
+
+/* ── 样式窗口（M8）────────────────────────────────────────── */
+
+/*
+ * 三个按钮【固定在顶部】：下面的控件再多、窗口再滚，「取消」都还在手边。
+ * 窗口本身刻意窄一些，好让用户同时看得见后面正在实时预览的导图。
+ */
+.om-style-modal {
+  max-width: 460px;
+}
+
+.om-style-modal .om-style-actions {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.om-style-modal .om-style-actions button {
+  flex: 1 1 auto;
+}
+
+.om-style-modal h3 {
+  margin-top: 0;
+}
