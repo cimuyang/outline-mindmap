@@ -10,15 +10,21 @@ copy of the state.
 
 ![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.gif)
 
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.2.0**
+
+> The plugin's user interface is in Chinese. Command and setting names below are given in
+> Chinese with an English gloss.
+
 ## Features
 
 1. **Plain Markdown in, clean Markdown out**: Headings and lists become a mindmap on their own — no YAML, no injected properties, no hidden comments. Every setting lives in the plugin's own `data.json`. Your Markdown stays Markdown, and stays usable anywhere.
 2. **Two-way live sync**: Edit the note and the map follows; drag a node and the note updates. Write-back replaces only that line — every byte outside it is untouched — and one action is one undo, so the two sides never drift apart.
 3. **Click to locate**: Click a node and the note scrolls to the matching line and highlights it; double-click to rename. After you add, rename or drag a node, the note stays right where you were working — outline and prose, no seam in between.
-4. **Drag to rearrange**: Drop on a node's top or bottom edge to insert before or after, drop in the middle to make it a child, drop on empty space to start a new root. Cross the 6th level and headings and list items convert automatically — with the body text underneath moving along.
-5. **Keyboard-first**: `Enter` for a sibling, `Tab` for a child, arrow keys to move around, `Delete` to remove a whole subtree, `Esc` to abandon anything without writing a byte. Your hands never leave the keys.
-6. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides. Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
-7. **Smooth animation, if you want it**: Node movement, layout changes and expand/collapse can all glide. It ships off — that smoothness is your call. What never changes: after a collapse, the node you just clicked is still dead centre.
+4. **Note ⇄ map, in place**: *打开为导图* (Open as mindmap) turns the current tab into a map; *打开为笔记* (Open as note) turns it back. Same tab, no extra tabs piling up.
+5. **Drag to rearrange**: Drop on a node's top or bottom edge to insert before or after, drop in the middle to make it a child, drop on empty space to start a new root. Cross the 6th level and headings and list items convert automatically — with the body text underneath moving along.
+6. **Keyboard-first**: `Enter` for a sibling, `Tab` for a child, arrow keys to move around, `Delete` to remove a whole subtree, `Esc` to abandon anything without writing a byte. Your hands never leave the keys.
+7. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides. Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
+8. **Smooth animation, if you want it**: Node movement, layout changes and expand/collapse can all glide. It ships off — that smoothness is your call. What never changes: after a collapse, the node you just clicked is still dead centre.
 
 ## Three lines that will never be crossed
 
@@ -34,12 +40,15 @@ copy of the state.
 
 Not in the community plugin browser yet, so install manually:
 
-1. Copy `main.js`, `manifest.json` and `styles.css` into
-   `<your vault>/.obsidian/plugins/outline-mindmap/`
-2. Enable **大纲思维导图 / Outline Mindmap** under *Settings → Community plugins*
+1. Download `main.js`, `manifest.json` and `styles.css` from the
+   [Releases](../../releases/latest) page — those three files are the whole plugin, and each
+   release carries a GitHub [build provenance attestation](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
+   so you can verify they really were built from this repository.
+2. Put them in `<your vault>/.obsidian/plugins/outline-mindmap/`
+3. Enable **Outline Mindmap** under *Settings → Community plugins*
 
-`main.js` is committed in this repository, so you can download the three files directly —
-no build step required.
+`main.js` is a build artifact and is **not** committed here, so cloning the repository is not a
+shortcut to installing — build it, or take the release.
 
 Building from source:
 
@@ -50,14 +59,29 @@ npm run build     # type-check + bundle into main.js
 
 ## Usage
 
-Three ways to open the map:
+Four ways to open the map:
 
 - The mindmap icon in the left ribbon → opens in the **right sidebar**
-- Command palette → *打开大纲思维导图* (Open outline mindmap) → opens as a **tab in the main area**
-- Command palette → *在侧边栏打开大纲思维导图* (Open outline mindmap in the sidebar)
+- Command palette → *打开导图* (Open mindmap) → opens as a **tab in the main area**
+- Command palette → *在侧边栏打开导图* (Open mindmap in the sidebar)
+- A note's ⋯ menu → **打开为导图** (Open as mindmap): the current tab turns into a map in place
+  (right-clicking a note in the file explorer offers the same item)
 
-Both forms can be open at the same time without interfering. The map follows the active note by
-default; turn on **锁定当前笔记** (Pin current note) in the settings to keep it on one note.
+Going back, a map's ⋯ menu has **打开为笔记** (Open as note), turning that same tab back into a
+note. The two are exact inverses; switching back and forth never opens an extra tab.
+
+**After 打开为导图 you are in pure-map mode**: that tab no longer holds an editor, so clicking a
+node only selects it — the plugin will not dig the note out for you. To read the note and edit
+the map side by side, open the map in the sidebar or split the pane.
+
+The main-area and sidebar forms can be open at the same time without interfering. The map
+follows the active note by default (including when you come back from a background tab or a
+collapsed sidebar). To keep it parked on one note, turn on **固定显示一篇笔记** (Always show one
+note) in the settings — once pinned, it stays on that note even across an Obsidian restart.
+
+If the map ever stops following, the command **跟随自检** (Follow self-check) reports the active
+note, the note the map is showing, both toggles, and a timestamped trail of every sync event the
+view received — and copies the whole thing to the clipboard.
 
 ### How a note becomes a map
 
@@ -68,8 +92,22 @@ default; turn on **锁定当前笔记** (Pin current note) in the settings to ke
 | Body paragraphs under a heading | Not shown, but **move together with their heading** |
 | A `#` inside a fenced code block | Not a heading, never appears in the map |
 
-Inline markup in node text — `**bold**`, `*italic*`, `` `code` ``, `[link]()`, `==highlight==` —
-is rendered as such.
+Inline markup in node text — `**bold**`, `*italic*`, `***bold italic***`, `==highlight==`,
+`~~strikethrough~~` — is rendered as such and nests freely. An unpaired `*` (as in `2 * 3`) is
+plain text and is never swallowed.
+
+Links show **only the readable part**, so paths and URLs cost no node width:
+
+| In the note | Shown in the map |
+| --- | --- |
+| `[[Some note]]` | Some note |
+| `[[folder/target\|alias]]` | alias |
+| `[[note#section]]`, `[[#section]]` | section |
+| `[text](https://…)` | text |
+
+Link text is tinted with the theme's link colour but is **not clickable** — a click in the map
+already means "jump to the matching line in the note", and competing for the same click would
+only make it unpredictable.
 
 ### Keyboard
 
@@ -103,8 +141,8 @@ Expand all · Collapse all · Style settings.
 
 | Toggle | Default | What it does |
 | --- | --- | --- |
-| 单击即跳转 (Click to jump) | On | Clicking a node scrolls the editor to the matching heading and highlights it; after you create / rename / delete / drag a node in the map, the note also stays at that node. Turn it off and a click only selects — the editor never scrolls |
-| 锁定当前笔记 (Pin current note) | Off | The map stops following the active note |
+| 单击即跳转 (Click to jump) | On | Clicking a node scrolls the note to the matching heading and highlights it (focus stays on the map); after you create / rename / delete / drag a node, the note also stays at that node. **It only scrolls an editor that is already visible on screen** — it never opens a tab, never splits a pane, never pulls a background tab to the front. Turn it off and a click only selects |
+| 固定显示一篇笔记 (Always show one note) | Off | The map stops following the active note and stays on the one it was opened with |
 | 优雅动画 (Smooth animation) | **Off** | Smooth transitions for node movement, layout switching and the viewport follow on expand/collapse. Noticeably slower with many nodes |
 | 严格换行 (Strict blank lines) | On | When adding / moving nodes, pad adjacent headings to 3 blank lines apart |
 
@@ -137,7 +175,7 @@ code blocks), generated deterministically by `node scripts/gen-stress-note.mjs`.
 | Ten `Enter` presses in a row (each on the previous text) | ≈ 2ms each |
 
 The DOM half can only be measured for real inside Obsidian: open the stress note as a map and
-run the command **导图性能自检** (Mindmap self-check), which reports how many milliseconds
+run the command **性能自检** (Performance self-check), which reports how many milliseconds
 layout, first render (rebuilding all DOM) and redraw actually took.
 
 ## Known limitations
@@ -154,13 +192,32 @@ layout, first render (rebuilding all DOM) and redraw actually took.
 ```bash
 npm run dev        # watch build
 npm run typecheck  # strict type-check
-npm test           # 460 unit tests
+npm test           # 478 unit tests
 ```
 
 The directory layering is a hard constraint: `core/` (parsing, serialisation, structural
 operations) and `layout/` (the layout algorithm) **must not import any Obsidian API** — they are
 pure functions with unit tests. Only `doc/DocumentBridge.ts` touches file I/O, and only `view/`
 touches the DOM.
+
+To install a dev build into a vault without copying three files by hand every round:
+
+```bash
+npm run deploy "D:\your vault"   # remembers the target in deploy.json (git-ignored)
+npm run deploy                   # afterwards: build + install into the remembered vaults
+```
+
+It overwrites only `main.js`, `manifest.json` and `styles.css` — never `data.json`, never a note.
+If the vault already has this plugin under a differently-named folder, it reuses that folder
+rather than creating a second copy with the same plugin id.
+
+Releases are cut by tag: bump the version in `manifest.json`, `package.json` and `versions.json`,
+then `git tag 1.2.0 && git push origin 1.2.0`. The workflow runs the tests, builds, checks the
+tag against the manifest, attests provenance and uploads exactly those three files.
+**The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
+
+The full specification (data mapping, serialisation rules, the list of traps) lives in
+[操作手册.md](操作手册.md), in Chinese.
 
 ## License
 
