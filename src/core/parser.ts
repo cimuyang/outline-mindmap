@@ -4,7 +4,7 @@
  * 【禁止】import 任何 obsidian API。
  */
 
-import type { MindNode, MindTree, NodeKind } from './types'
+import { DEFAULT_OPTIONS, type MindNode, type MindTree, type NodeKind, type ParseOptions } from './types'
 
 // ── A.2 行分类正则 ──────────────────────────────────────────────
 
@@ -96,7 +96,11 @@ function frontmatterEnd(lines: string[]): number {
 
 // ── A.2–A.4 扫描：产出文档序的节点列表 ──────────────────────────
 
-function scan(lines: string[]): RawNode[] {
+/**
+ * @param listNodes false 时列表项不算节点（A.4 的列表节点模式整个不启动），
+ * 列表行连同它的缩进续行都只是正文。围栏判定不受影响——围栏内的行本来就不是节点。
+ */
+function scan(lines: string[], listNodes: boolean): RawNode[] {
   const nodes: RawNode[] = []
 
   /** 最近的标题祖先深度；null 表示尚未出现任何标题。 */
@@ -152,7 +156,7 @@ function scan(lines: string[]): RawNode[] {
     if (isBlank(line)) continue
 
     // ── 优先级 3：列表项 ──
-    const l = LIST_RE.exec(line)
+    const l = listNodes ? LIST_RE.exec(line) : null
     if (l) {
       if (listMode === 'ended') continue // 模式已终止，此后列表一律是正文
       const w = indentWidth(l[1] ?? '')
@@ -207,10 +211,10 @@ function makeNode(
   }
 }
 
-export function parse(text: string): MindTree {
+export function parse(text: string, options: ParseOptions = DEFAULT_OPTIONS): MindTree {
   const eol = detectEol(text)
   const lines = splitLines(text)
-  const raw = scan(lines)
+  const raw = scan(lines, options.listNodes)
 
   let counter = 0
   const nextId = (): string => `n${++counter}`

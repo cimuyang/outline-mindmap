@@ -1,7 +1,7 @@
 {
   "id": "outline-mindmap",
   "name": "Outline Mindmap",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "minAppVersion": "1.7.2",
   "description": "Render the heading outline of a Markdown note as a mindmap, with two-way live editing between the map and the note.",
   "author": "cimuyang",

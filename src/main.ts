@@ -1,5 +1,6 @@
 import { Notice, Plugin, TFile, type WorkspaceLeaf } from 'obsidian'
 import { highlightExtension } from './doc/highlight'
+import { t } from './i18n'
 import {
   MindmapSettingTab,
   normalizeSettings,
@@ -44,7 +45,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
         if (!(file instanceof TFile) || file.extension !== 'md') return
         menu.addItem((item) =>
           item
-            .setTitle('打开为导图')
+            .setTitle(t('menu.openAsMindmap'))
             .setIcon('network')
             .onClick(() => {
               void this.openAsMindmap(file, leaf)
@@ -54,14 +55,14 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     )
 
     // 侧边栏图标固定为导图图标——与 MindmapView.getIcon() 是同一个（M7）
-    this.addRibbonIcon('network', '在侧边栏打开大纲思维导图', () => {
+    this.addRibbonIcon('network', t('ribbon.open'), () => {
       void this.activateView('right')
     })
 
     this.addCommand({
       // 命令 ID 与名称都不再重复插件名：Obsidian 会自己加上插件名前缀（官方审查要求）
       id: 'open',
-      name: '打开导图',
+      name: t('command.open'),
       callback: () => {
         void this.activateView('tab')
       },
@@ -69,7 +70,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
 
     this.addCommand({
       id: 'open-in-sidebar',
-      name: '在侧边栏打开导图',
+      name: t('command.openInSidebar'),
       callback: () => {
         void this.activateView('right')
       },
@@ -79,11 +80,11 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     // 而 DOM 的耗时只有在真实环境里才量得准，所以把尺子交到用户手上。
     this.addCommand({
       id: 'perf-report',
-      name: '性能自检',
+      name: t('command.perfReport'),
       callback: () => {
         const view = this.mindmapViews()[0]
         // 弹 12 秒：报告有五行，默认那几秒读不完
-        new Notice(view ? view.perfReport() : '请先打开大纲思维导图。', 12000)
+        new Notice(view ? view.perfReport() : t('notice.openMindmapFirst'), 12000)
       },
     })
 
@@ -94,15 +95,15 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     // 而这份东西的用途本来就是贴给别人看。复制失败也不影响读，所以不打断。
     this.addCommand({
       id: 'follow-report',
-      name: '跟随自检',
+      name: t('command.followReport'),
       callback: () => {
         const views = this.mindmapViews()
         if (views.length === 0) {
-          new Notice('请先打开大纲思维导图。')
+          new Notice(t('notice.openMindmapFirst'))
           return
         }
         const text = views.map((v) => v.diagnostics()).join('\n\n')
-        new Notice(`${text}\n\n（已复制到剪贴板）`, 30000)
+        new Notice(`${text}\n\n${t('notice.copiedToClipboard')}`, 30000)
         void navigator.clipboard.writeText(text).catch(() => undefined)
       },
     })
@@ -130,6 +131,11 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings)
+  }
+
+  /** 解析类设置变了：所有开着的导图按新规则重新解析当前笔记（MindmapHost）。 */
+  reloadMindmaps(): void {
+    for (const view of this.mindmapViews()) void view.reparse()
   }
 
   /**

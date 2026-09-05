@@ -22,6 +22,8 @@ export interface MindmapStyle {
   scheme: ColorScheme
   /** 字号缩放。1 = 跟随主题字号。 */
   fontScale: number
+  /** 多彩标题：按层级给节点文字与边框着色（层级色板在 styles.css）。 */
+  colorByLevel: boolean
 }
 
 /** 各项的取值范围。滑块与「从 data.json 读进来的脏数据」共用同一份，免得两边对不上。 */
@@ -43,6 +45,7 @@ export const DEFAULT_STYLE: MindmapStyle = {
   branch: 'curve',
   scheme: 'theme',
   fontScale: 1,
+  colorByLevel: false,
 }
 
 export interface StyleData {
@@ -88,6 +91,7 @@ export function normalizeStyle(raw: unknown, base: MindmapStyle = DEFAULT_STYLE)
     branch: pick(o['branch'], BRANCHES, base.branch),
     scheme: pick(o['scheme'], SCHEMES, base.scheme),
     fontScale: num(o['fontScale'], base.fontScale, STYLE_LIMITS.fontScale),
+    colorByLevel: typeof o['colorByLevel'] === 'boolean' ? o['colorByLevel'] : base.colorByLevel,
   }
 }
 
@@ -112,7 +116,8 @@ export function sameStyle(a: MindmapStyle, b: MindmapStyle): boolean {
     a.shape === b.shape &&
     a.branch === b.branch &&
     a.scheme === b.scheme &&
-    a.fontScale === b.fontScale
+    a.fontScale === b.fontScale &&
+    a.colorByLevel === b.colorByLevel
   )
 }
 

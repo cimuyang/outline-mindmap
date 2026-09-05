@@ -57,8 +57,14 @@ export type EditPlan = TextEdit[]
 export interface ParseOptions {
   /** 严格换行。只影响序列化，不影响解析。 */
   strictLineBreak: boolean
+  /**
+   * 是否把列表项解析为导图节点。false 时列表行只是最近标题的正文，
+   * 树里只剩标题（深度因此不超过 6），文件本身一个字节都不变。
+   */
+  listNodes: boolean
 }
 
 export const DEFAULT_OPTIONS: ParseOptions = {
   strictLineBreak: true,
+  listNodes: true,
 }

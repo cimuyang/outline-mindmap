@@ -24,8 +24,8 @@ import {
 } from '../view/DragController'
 import { allNodes } from './helpers'
 
-const STRICT: ParseOptions = { strictLineBreak: true }
-const LOOSE: ParseOptions = { strictLineBreak: false }
+const STRICT: ParseOptions = { strictLineBreak: true, listNodes: true }
+const LOOSE: ParseOptions = { strictLineBreak: false, listNodes: true }
 
 function idOf(tree: MindTree, text: string): string {
   const node = allNodes(tree).find((n) => n.text === text)

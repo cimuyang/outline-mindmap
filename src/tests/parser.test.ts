@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { detectEol, listBaseDepthOf, parse, splitLines } from '../core/parser'
+import { detectEol, joinLines, listBaseDepthOf, parse, splitLines } from '../core/parser'
 import { serializeNode, serializeSubtree } from '../core/serializer'
 import { applyPlan, validatePlan } from '../core/editplan'
+import { moveSubtree } from '../core/tree'
 import type { MindNode, ParseOptions } from '../core/types'
 import { allNodes, treeShape } from './helpers'
 
-const STRICT: ParseOptions = { strictLineBreak: true }
+const STRICT: ParseOptions = { strictLineBreak: true, listNodes: true }
 
 /** 取文档序第 n 个节点。 */
 function nth(md: string, n: number): MindNode {
@@ -269,7 +270,7 @@ describe('A.6 序列化', () => {
     const md = '# 一\n# 二\n'
     const tree = parse(md)
     const a = tree.root.children[0] as MindNode
-    expect(serializeSubtree(tree.lines, a, 1, 'heading', 1, { strictLineBreak: false })).toEqual([
+    expect(serializeSubtree(tree.lines, a, 1, 'heading', 1, { strictLineBreak: false, listNodes: true })).toEqual([
       '# 一',
     ])
   })
@@ -327,7 +328,7 @@ describe('A.8 跨界转换示例', () => {
     const tree = parse(md)
     const one = tree.root.children[0] as MindNode
     // 把「一」整体压到 depth 5：二→6，三→7 越界，必须转列表
-    expect(serializeSubtree(tree.lines, one, 5, 'heading', 1, { strictLineBreak: false })).toEqual([
+    expect(serializeSubtree(tree.lines, one, 5, 'heading', 1, { strictLineBreak: false, listNodes: true })).toEqual([
       '##### 一',
       '###### 二',
       '- 三',
@@ -338,7 +339,7 @@ describe('A.8 跨界转换示例', () => {
     const md = '###### 六\n- 甲\n'
     const tree = parse(md)
     const six = tree.root.children[0] as MindNode
-    expect(serializeSubtree(tree.lines, six, 6, 'heading', 1, { strictLineBreak: false })).toEqual([
+    expect(serializeSubtree(tree.lines, six, 6, 'heading', 1, { strictLineBreak: false, listNodes: true })).toEqual([
       '###### 六',
       '- 甲',
     ])
@@ -349,7 +350,7 @@ describe('A.8 跨界转换示例', () => {
     const tree = parse(md)
     const two = tree.root.children[0] as MindNode
     // 平移到 depth 3：三→4 仍是标题，甲→5 仍是列表
-    expect(serializeSubtree(tree.lines, two, 3, 'heading', 1, { strictLineBreak: false })).toEqual([
+    expect(serializeSubtree(tree.lines, two, 3, 'heading', 1, { strictLineBreak: false, listNodes: true })).toEqual([
       '### 二',
       '#### 三',
       '- 甲',
@@ -360,7 +361,7 @@ describe('A.8 跨界转换示例', () => {
     const md = '#### 四\n正文一\n\t保持原缩进\n##### 五\n正文二\n'
     const tree = parse(md)
     const four = tree.root.children[0] as MindNode
-    expect(serializeSubtree(tree.lines, four, 7, 'list', 7, { strictLineBreak: false })).toEqual([
+    expect(serializeSubtree(tree.lines, four, 7, 'list', 7, { strictLineBreak: false, listNodes: true })).toEqual([
       '- 四',
       '正文一',
       '\t保持原缩进',
@@ -373,7 +374,7 @@ describe('A.8 跨界转换示例', () => {
     const md = '# 一\n### 三\n'
     const tree = parse(md)
     const one = tree.root.children[0] as MindNode
-    expect(serializeSubtree(tree.lines, one, 2, 'heading', 1, { strictLineBreak: false })).toEqual([
+    expect(serializeSubtree(tree.lines, one, 2, 'heading', 1, { strictLineBreak: false, listNodes: true })).toEqual([
       '## 一',
       '#### 三',
     ])
@@ -466,3 +467,61 @@ describe('splitLines / detectEol', () => {
     expect(detectEol('\na')).toBe('\n')
   })
 })
+
+// ── listNodes: false（忽略列表节点）────────────────────────────
+
+describe('忽略列表节点', () => {
+  const NO_LIST: ParseOptions = { strictLineBreak: true, listNodes: false }
+
+  it('列表行只是最近标题的正文，标题结构原样保留', () => {
+    const tree = parse('# 一\n- 甲\n\t- 乙\n## 二\n- 丙\n', NO_LIST)
+    expect(treeShape(tree)).toEqual([
+      { text: '一', depth: 1, kind: 'heading', children: [
+        { text: '二', depth: 2, kind: 'heading', children: [] },
+      ] },
+    ])
+  })
+
+  it('列表行落在最近标题的 bodyEnd 之内，搬走标题时正文随行', () => {
+    const tree = parse('# 一\n- 甲\n## 二\n正文\n', NO_LIST)
+    const one = tree.byId.get(idOfText(tree, '一')) as MindNode
+    expect(one.bodyEnd).toBe(2) // 第 1 行的列表在「一」的正文范围里
+  })
+
+  it('纯列表笔记 → 空树（虚拟 root 无子节点），文件行原样保留', () => {
+    const md = '- 甲\n\t- 乙\n'
+    const tree = parse(md, NO_LIST)
+    expect(tree.root.children).toEqual([])
+    expect(splitLines(md)).toEqual(tree.lines)
+  })
+
+  it('围栏里的列表本来就不解析，开关不影响围栏判定', () => {
+    const tree = parse('# 一\n```\n- 假\n```\n## 二\n', NO_LIST)
+    expect(treeShape(tree)).toEqual([
+      { text: '一', depth: 1, kind: 'heading', children: [
+        { text: '二', depth: 2, kind: 'heading', children: [] },
+      ] },
+    ])
+  })
+
+  it('移动标题时列表正文整块随行，再解析一行不少', () => {
+    const tree = parse('# 一\n- 甲\n\t- 乙\n## 二\n', NO_LIST)
+    const plan = moveSubtree(tree, idOfText(tree, '二'), null, 0, NO_LIST)
+    const after = joinLines(applyPlan(tree.lines, plan), tree.eol)
+    // 用「显示列表」的规则重新解析：内容一行不丢、层级不乱，开关只是换个视角看同一篇笔记
+    const re = parse(after)
+    expect(allNodes(re).map((n) => `${n.depth}${n.kind === 'heading' ? 'H' : 'L'}:${n.text}`)).toEqual([
+      '1H:二',
+      '1H:一',
+      '2L:甲',
+      '3L:乙',
+    ])
+  })
+})
+
+/** 按文本找 id（parser.test.ts 本地辅助，避免与 nth 混用）。 */
+function idOfText(tree: ReturnType<typeof parse>, text: string): string {
+  const node = allNodes(tree).find((n) => n.text === text)
+  if (!node) throw new Error(`找不到节点：${text}`)
+  return node.id
+}

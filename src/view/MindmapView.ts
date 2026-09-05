@@ -23,6 +23,7 @@ import { applyPlan } from '../core/editplan'
 import { joinLines, parse } from '../core/parser'
 import { reconcile } from '../core/reconcile'
 import {
+  maxDepthDrop,
   moveSubtree,
   navigate,
   planEdit,
@@ -50,6 +51,7 @@ import { DocumentBridge, type DocumentChange } from '../doc/DocumentBridge'
 import type { MindmapHost } from '../settings/SettingsTab'
 import { StyleModal } from '../settings/StyleModal'
 import { DEFAULT_STYLE, type MindmapStyle } from '../settings/StyleStore'
+import { t } from '../i18n'
 import { Canvas } from './Canvas'
 import { Connectors } from './Connectors'
 import { DragController, subtreeIds, type DropResult } from './DragController'
@@ -151,7 +153,7 @@ export class MindmapView extends ItemView {
   }
 
   override getDisplayText(): string {
-    return this.file ? `导图：${this.file.basename}` : '大纲思维导图'
+    return this.file ? t('view.titleWithNote', this.file.basename) : t('view.title')
   }
 
   override getIcon(): string {
@@ -223,7 +225,7 @@ export class MindmapView extends ItemView {
     if (!file) return
     menu.addItem((item) =>
       item
-        .setTitle('打开为笔记')
+        .setTitle(t('menu.openAsNote'))
         .setIcon('file-text')
         .onClick(() => {
           // 就地换形态：同一个叶子从导图变回 Markdown，不另开标签页
@@ -249,7 +251,7 @@ export class MindmapView extends ItemView {
     this.canvas = new Canvas(host, () => {
       if (this.needsFit && this.canvas.fit(this.bounds)) this.needsFit = false
     })
-    this.empty = host.createDiv({ cls: 'om-empty', text: '当前没有可显示的笔记' })
+    this.empty = host.createDiv({ cls: 'om-empty', text: t('view.empty') })
 
     // 工具栏（M7）。浮在画布上层，两种形态（主页面 / 侧边栏）共用同一套按钮。
     this.toolbar = new Toolbar(host, {
@@ -392,12 +394,20 @@ export class MindmapView extends ItemView {
     const active = ws.getActiveFile()
     const alive = Math.round((Date.now() - this.bornAt) / 1000)
     return [
-      `导图跟随自检（${this.leaf.getRoot() === ws.rootSplit ? '主页面区' : '侧边栏'}，本实例已存活 ${alive}s）`,
-      `· Obsidian 的活动笔记：${active?.path ?? '（无）'}`,
-      `· 导图正在显示：${this.file?.path ?? '（无）'}${this.tree ? '' : '（树是空的）'}`,
-      `· 固定显示一篇笔记：${this.host.settings.lockFile ? '开' : '关'}／单击即跳转：${this.host.settings.clickToJump ? '开' : '关'}`,
-      `· 同步留痕（最近 ${this.trail.length} 次，早 → 晚）：`,
-      ...(this.trail.length === 0 ? ['    （一次都没有——事件根本没送到这个视图）'] : this.trail.map((t) => `    ${t}`)),
+      t(
+        'diag.title',
+        this.leaf.getRoot() === ws.rootSplit ? t('diag.mainArea') : t('diag.sidebar'),
+        alive,
+      ),
+      t('diag.activeNote', active?.path ?? t('diag.none')),
+      t('diag.showing', (this.file?.path ?? t('diag.none')) + (this.tree ? '' : t('diag.treeEmpty'))),
+      t(
+        'diag.switches',
+        this.host.settings.lockFile ? t('diag.on') : t('diag.off'),
+        this.host.settings.clickToJump ? t('diag.on') : t('diag.off'),
+      ),
+      t('diag.trail', this.trail.length),
+      ...(this.trail.length === 0 ? [t('diag.noEvents')] : this.trail.map((s) => `    ${s}`)),
     ].join('\n')
   }
 
@@ -407,7 +417,7 @@ export class MindmapView extends ItemView {
    */
   private note(source: string, active: TFile | null, outcome: string): void {
     const at = ((Date.now() - this.bornAt) / 1000).toFixed(1)
-    this.trail.push(`+${at}s ${source} 看到 ${active?.basename ?? '（无）'} → ${outcome}`)
+    this.trail.push(`+${at}s ${source} → ${active?.basename ?? t('diag.none')} → ${outcome}`)
     if (this.trail.length > 16) this.trail.shift()
   }
 
@@ -487,6 +497,8 @@ export class MindmapView extends ItemView {
     if (changed) root.removeClass(`om-shape-${prev.shape}`, `om-scheme-${prev.scheme}`)
     // 首次调用时 prev 还是默认样式、class 一个都没挂上，所以这里无条件加一次
     root.addClass(`om-shape-${next.shape}`, `om-scheme-${next.scheme}`)
+    // 多彩标题：层级 class 常年在节点上，着不着色由根上的这一个开关说了算
+    root.toggleClass('om-level-colors', next.colorByLevel)
     // 字号缩放变了 → 之前量出来的每一个宽高都作废
     if (changed && prev.fontScale !== next.fontScale) this.font = null
     this.style = next
@@ -503,9 +515,12 @@ export class MindmapView extends ItemView {
     ).open()
   }
 
-  /** 解析 / 序列化选项。目前只有「严格换行」，每次现取，改设置后下一次编辑立即生效。 */
+  /** 解析 / 序列化选项。每次现取，改设置后下一次编辑立即生效。 */
   private parseOptions(): ParseOptions {
-    return { strictLineBreak: this.host.settings.strictLineBreak }
+    return {
+      strictLineBreak: this.host.settings.strictLineBreak,
+      listNodes: this.host.settings.listNodes,
+    }
   }
 
   /** 切换布局方向。切完自动适应画布（M7 交付物）。 */
@@ -552,7 +567,7 @@ export class MindmapView extends ItemView {
     // 「固定显示一篇笔记」（M7 设置项，键名仍是 lockFile）：开着之后导图不再跟着活动笔记走。
     // force 那次是视图刚打开时的首次同步，必须放行——否则锁着的时候新开一个导图会是空的。
     if (this.host.settings.lockFile && this.file && !force) {
-      this.note(source, this.activeMarkdownFile(), '被「固定显示一篇笔记」挡下')
+      this.note(source, this.activeMarkdownFile(), t('trail.blockedByPin'))
       return
     }
 
@@ -562,15 +577,15 @@ export class MindmapView extends ItemView {
     // 折叠态和视野一起没，用户看到的是闪一下白。
     // 真正需要清空的只有「这篇被删了」，那一路由 vault 的 delete 监听带 force 进来。
     if (!next && !force) {
-      this.note(source, next, '此刻没有活动笔记，保持原样')
+      this.note(source, next, t('trail.noActive'))
       return
     }
     if (next === this.file && !force) {
-      this.note(source, next, '与正在显示的是同一篇，无需切换')
+      this.note(source, next, t('trail.sameNote'))
       return
     }
 
-    this.note(source, next, `切到 ${next?.basename ?? '（空）'}`)
+    this.note(source, next, t('trail.switched', next?.basename ?? t('diag.none')))
     this.adoptFile(next)
 
     if (!next) {
@@ -602,7 +617,7 @@ export class MindmapView extends ItemView {
   }
 
   private refresh(text: string): void {
-    this.tree = reconcile(this.tree, parse(text))
+    this.tree = reconcile(this.tree, parse(text, this.parseOptions()))
     // 被别处删掉的节点不能继续留在选中集合里，否则删除/拖拽会拿着不存在的 id 去生成 plan
     const byId = this.tree.byId
     for (const id of [...this.selection]) if (!byId.has(id)) this.selection.delete(id)
@@ -615,6 +630,18 @@ export class MindmapView extends ItemView {
     const text = this.pendingText
     if (text === null || this.session) return
     this.pendingText = null
+    this.refresh(text)
+  }
+
+  /**
+   * 设置里的解析选项变了（「把列表项显示为节点」）：按新规则重新解析当前笔记。
+   * 折叠态与节点 id 由 reconcile 保住；正在编辑时不开进来（开关在设置页，点它时编辑框已收起）。
+   */
+  async reparse(): Promise<void> {
+    const file = this.file
+    if (!file) return
+    const text = await this.bridge.readText(file)
+    if (this.file?.path !== file.path) return // 读取期间换了笔记，那一路自己会刷
     this.refresh(text)
   }
 
@@ -701,7 +728,7 @@ export class MindmapView extends ItemView {
    */
   perfReport(): string {
     const tree = this.tree
-    if (!tree || tree.root.children.length === 0) return '导图性能自检：当前没有可显示的笔记。'
+    if (!tree || tree.root.children.length === 0) return t('perf.noNote')
 
     const nodes = visibleNodes(tree).length
     const t0 = performance.now()
@@ -721,11 +748,11 @@ export class MindmapView extends ItemView {
 
     const ms = (v: number): string => `${v.toFixed(1)}ms`
     return [
-      `导图性能自检（${nodes} 个可见节点）`,
-      `· 布局：${ms(layoutMs)}`,
-      `· 首次渲染：${ms(coldMs)}（建全部 DOM + 样式与排版）`,
-      `· 重绘：${ms(warmMs)}（复用现有 DOM）`,
-      coldMs > 500 ? '首次渲染超过 500ms，按手册 M10 需要引入视口虚拟化。' : '首次渲染在 500ms 以内。',
+      t('perf.title', nodes),
+      t('perf.layout', ms(layoutMs)),
+      t('perf.cold', ms(coldMs)),
+      t('perf.warm', ms(warmMs)),
+      coldMs > 500 ? t('perf.needsVirtualize') : t('perf.ok'),
     ].join('\n')
   }
 
@@ -942,7 +969,7 @@ export class MindmapView extends ItemView {
     const file = this.file
     if (!file) return
     // 不自建撤销栈：所有写入都是编辑器事务，转发过去天然一致（第 4.6 节）
-    if (!this.bridge.undo(file)) new Notice('笔记没有在编辑器里打开，无法撤销')
+    if (!this.bridge.undo(file)) new Notice(t('notice.cannotUndo'))
   }
 
   // ── 编辑会话 ────────────────────────────────────────────────
@@ -957,6 +984,12 @@ export class MindmapView extends ItemView {
   private startChild(): void {
     const node = this.selectedNode()
     if (!node) return
+    // 「忽略列表节点」开着时第 6 层下没法再挂子节点：列表语法会被解析回正文，
+    // 写进去就是一棵看不见的子树。用用户的语言拦在编辑框打开之前。
+    if (!this.host.settings.listNodes && node.depth >= 6) {
+      new Notice(t('notice.listNodesRequired'))
+      return
+    }
     this.beginDraft({ type: 'child', parentId: node.id })
   }
 
@@ -1172,6 +1205,17 @@ export class MindmapView extends ItemView {
     const tree = this.tree
     if (!tree || !this.file) return
 
+    // 同 startChild 的拦截，但要看整棵子树：标题层级跳跃被保留（A.3），
+    // 父挪深一层可能把某个后代推过第 6 层。core 里的同名断言只是兜底。
+    if (!this.host.settings.listNodes) {
+      const node = tree.byId.get(dragId)
+      const parentDepth = result.parentId === null ? 0 : (tree.byId.get(result.parentId)?.depth ?? 0)
+      if (node && parentDepth + 1 + maxDepthDrop(node) >= 7) {
+        new Notice(t('notice.listNodesRequired'))
+        return
+      }
+    }
+
     let plan: EditPlan
     try {
       plan = moveSubtree(tree, dragId, result.parentId, result.index, this.parseOptions())
@@ -1251,7 +1295,7 @@ export class MindmapView extends ItemView {
 
   private report(err: unknown): void {
     const msg = err instanceof Error ? err.message : String(err)
-    new Notice(`导图操作未完成：${msg}`)
+    new Notice(t('notice.operationAborted', msg))
     console.error('[outline-mindmap]', err)
   }
 }

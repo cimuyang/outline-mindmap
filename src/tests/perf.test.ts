@@ -106,6 +106,7 @@ describe('1000 节点压力测试（M10）', () => {
     for (let i = 0; i < 10; i++) {
       const outcome = planEdit(tree, { type: 'sibling', refId: anchor.id }, `新增节点 ${i}`, {
         strictLineBreak: true,
+      listNodes: true,
       })
       text = joinLines(applyPlan(tree.lines, outcome.plan), tree.eol)
       tree = reconcile(tree, parse(text))

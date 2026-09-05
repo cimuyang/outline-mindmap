@@ -44,6 +44,52 @@
   --om-edge: rgba(224, 138, 60, 0.55);
 }
 
+/*
+ * 多彩标题（样式窗口里的开关）：只给文字与边框着色。
+ *
+ * 层级规则不改任何 border-color / color 的书写位置，只在节点上重新定义
+ * --om-node-border / --om-node-border-hover 两个变量——下面那些照旧读变量的规则
+ * （基础边框、悬停、下划线形状的 border-bottom）拿到的自然是层级色；
+ * 选中与拖拽落点用的 --om-accent 不在此列，交互态照常醒目。
+ *
+ * 色板取 Obsidian 内置色，明暗主题各自适配；列表层级超过 6 时 class 由 JS 按 6 循环。
+ */
+.om-root.om-level-colors .om-node.om-l1 {
+  color: var(--color-red);
+  --om-node-border: var(--color-red);
+  --om-node-border-hover: var(--color-red);
+}
+
+.om-root.om-level-colors .om-node.om-l2 {
+  color: var(--color-orange);
+  --om-node-border: var(--color-orange);
+  --om-node-border-hover: var(--color-orange);
+}
+
+.om-root.om-level-colors .om-node.om-l3 {
+  color: var(--color-yellow);
+  --om-node-border: var(--color-yellow);
+  --om-node-border-hover: var(--color-yellow);
+}
+
+.om-root.om-level-colors .om-node.om-l4 {
+  color: var(--color-green);
+  --om-node-border: var(--color-green);
+  --om-node-border-hover: var(--color-green);
+}
+
+.om-root.om-level-colors .om-node.om-l5 {
+  color: var(--color-cyan);
+  --om-node-border: var(--color-cyan);
+  --om-node-border-hover: var(--color-cyan);
+}
+
+.om-root.om-level-colors .om-node.om-l6 {
+  color: var(--color-purple);
+  --om-node-border: var(--color-purple);
+  --om-node-border-hover: var(--color-purple);
+}
+
 /* 节点形状（M8）。【只改边框与圆角，绝不动 padding】——内边距是 measure.ts 算宽高的依据，
    在这里改一像素，DOM 就会和布局算出来的盒子对不上，长文字还会多折出一行。 */
 .om-root.om-shape-pill .om-node,

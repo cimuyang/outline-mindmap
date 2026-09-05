@@ -8,6 +8,7 @@
  */
 
 import { Menu, setIcon } from 'obsidian'
+import { t, type MsgKey } from '../i18n'
 import { LAYOUT_DIRECTIONS } from '../layout'
 import type { LayoutDirection } from '../layout/types'
 
@@ -29,29 +30,29 @@ export interface ToolbarHooks {
 const ZOOM_STEP = 1.25
 
 /**
- * 布局方向的中文名。写成 Record 而不是数组：往 LayoutDirection 里加一项时，
+ * 布局方向的文案 key。写成 Record 而不是数组：往 LayoutDirection 里加一项时，
  * 忘了补名字会直接编译不过，不会悄悄漏一项。
  */
-const DIRECTION_LABELS: Record<LayoutDirection, string> = {
-  right: '分支向右',
-  left: '分支向左',
-  both: '分支两侧',
+const DIRECTION_LABELS: Record<LayoutDirection, MsgKey> = {
+  right: 'direction.right',
+  left: 'direction.left',
+  both: 'direction.both',
 }
 
 interface ButtonSpec {
   action: string
   icon: string
-  label: string
+  label: MsgKey
 }
 
 const BUTTONS: readonly ButtonSpec[] = [
-  { action: 'fit', icon: 'maximize', label: '适应画布' },
-  { action: 'zoom-out', icon: 'zoom-out', label: '缩小' },
-  { action: 'zoom-in', icon: 'zoom-in', label: '放大' },
-  { action: 'layout', icon: 'git-branch', label: '布局' },
-  { action: 'expand', icon: 'chevrons-up-down', label: '展开全部' },
-  { action: 'collapse', icon: 'chevrons-down-up', label: '折叠全部' },
-  { action: 'style', icon: 'palette', label: '样式设置' },
+  { action: 'fit', icon: 'maximize', label: 'tool.fit' },
+  { action: 'zoom-out', icon: 'zoom-out', label: 'tool.zoomOut' },
+  { action: 'zoom-in', icon: 'zoom-in', label: 'tool.zoomIn' },
+  { action: 'layout', icon: 'git-branch', label: 'tool.layout' },
+  { action: 'expand', icon: 'chevrons-up-down', label: 'tool.expand' },
+  { action: 'collapse', icon: 'chevrons-down-up', label: 'tool.collapse' },
+  { action: 'style', icon: 'palette', label: 'tool.style' },
 ]
 
 export class Toolbar {
@@ -78,7 +79,7 @@ export class Toolbar {
     const btn = this.el.createDiv({ cls: 'om-tool' })
     btn.dataset['action'] = spec.action
     // Obsidian 用 aria-label 显示气泡提示，顺便也是无障碍名字
-    btn.setAttribute('aria-label', spec.label)
+    btn.setAttribute('aria-label', t(spec.label))
     setIcon(btn, spec.icon)
     return btn
   }
@@ -128,7 +129,7 @@ export class Toolbar {
     for (const dir of LAYOUT_DIRECTIONS) {
       menu.addItem((item) =>
         item
-          .setTitle(DIRECTION_LABELS[dir])
+          .setTitle(t(DIRECTION_LABELS[dir]))
           .setChecked(dir === current)
           .onClick(() => {
             this.hooks.setDirection(dir)

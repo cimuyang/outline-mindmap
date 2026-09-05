@@ -6,8 +6,8 @@ import type { EditPlan, ParseOptions } from '../core/types'
 import { FIXTURES } from './fixtures'
 import { allNodes, treeShape } from './helpers'
 
-const STRICT: ParseOptions = { strictLineBreak: true }
-const LOOSE: ParseOptions = { strictLineBreak: false }
+const STRICT: ParseOptions = { strictLineBreak: true, listNodes: true }
+const LOOSE: ParseOptions = { strictLineBreak: false, listNodes: true }
 
 describe('断言 1：parse 不抛错', () => {
   for (const f of FIXTURES) {

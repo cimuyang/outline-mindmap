@@ -2,7 +2,9 @@
 
 **English** · [中文](readme-zh.md) · [插件介绍（可在 Obsidian 里直接打开的演示笔记）](插件介绍.md)
 
-Render the heading outline of a Markdown note as a mindmap, with **two-way live editing**.
+Render the heading outline of a Markdown note as a mindmap, with **two-way live editing** —
+colour it by level, drive it entirely from the keyboard, and never let it touch a byte of your
+Markdown it shouldn't.
 
 Edit a node in the map and you are editing that line of the note; type a character in the note
 and the map follows immediately. They are two views of one piece of data — there is no third
@@ -10,10 +12,8 @@ copy of the state.
 
 ![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.gif)
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.2.0**
-
-> The plugin's user interface is in Chinese. Command and setting names below are given in
-> Chinese with an English gloss.
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.0**
+- The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
 ## Features
 
@@ -23,8 +23,9 @@ copy of the state.
 4. **Note ⇄ map, in place**: *打开为导图* (Open as mindmap) turns the current tab into a map; *打开为笔记* (Open as note) turns it back. Same tab, no extra tabs piling up.
 5. **Drag to rearrange**: Drop on a node's top or bottom edge to insert before or after, drop in the middle to make it a child, drop on empty space to start a new root. Cross the 6th level and headings and list items convert automatically — with the body text underneath moving along.
 6. **Keyboard-first**: `Enter` for a sibling, `Tab` for a child, arrow keys to move around, `Delete` to remove a whole subtree, `Esc` to abandon anything without writing a byte. Your hands never leave the keys.
-7. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides. Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
+7. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides; and each level can get its own colour (**colour by level** — text and border, palette taken from the theme so light and dark both look right). Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
 8. **Smooth animation, if you want it**: Node movement, layout changes and expand/collapse can all glide. It ships off — that smoothness is your call. What never changes: after a collapse, the node you just clicked is still dead centre.
+9. **Headings only, when you want that**: The setting *把列表项显示为节点* (Show list items as nodes) turns list items off — the map shows headings only, the lists go back to being body text, and the note itself is not changed by one byte. Flip it back and every list node is exactly where it was.
 
 ## Three lines that will never be crossed
 
@@ -88,7 +89,7 @@ view received — and copies the whole thing to the clipboard.
 | In the note | Level in the map |
 | --- | --- |
 | `# Heading` … `###### Heading` | Levels 1–6 |
-| `- list item` (one level = 4 spaces or one tab of indent) | Level 7 and deeper |
+| `- list item` (one level = 4 spaces or one tab of indent) | Level 7 and deeper (can be turned off — see *Show list items as nodes*) |
 | Body paragraphs under a heading | Not shown, but **move together with their heading** |
 | A `#` inside a fenced code block | Not a heading, never appears in the map |
 
@@ -145,9 +146,10 @@ Expand all · Collapse all · Style settings.
 | 固定显示一篇笔记 (Always show one note) | Off | The map stops following the active note and stays on the one it was opened with |
 | 优雅动画 (Smooth animation) | **Off** | Smooth transitions for node movement, layout switching and the viewport follow on expand/collapse. Noticeably slower with many nodes |
 | 严格换行 (Strict blank lines) | On | When adding / moving nodes, pad adjacent headings to 3 blank lines apart |
+| 把列表项显示为节点 (Show list items as nodes) | On | Turn it off and the map shows headings only: list items go back to being body text under their heading. The note itself is not touched; switching back restores every list node. While it is off, adding or dragging past level 6 is blocked with a notice — a level-7 heading has no visible syntax to write |
 
-Styles — shape, colour scheme, font size, horizontal and vertical gaps, branch style
-(**straight / diagonal / elbow**) — come in two levels, **global** and **per-note**: a note with
+Styles — shape, colour scheme, **colour by level**, font size, horizontal and vertical gaps,
+branch style (**straight / diagonal / elbow**) — come in two levels, **global** and **per-note**: a note with
 no style of its own uses the global one. While the style window is open, dragging a slider
 previews live, and *Cancel* restores. Per-note styles are keyed by file path and are migrated or
 cleaned up automatically when you rename, move or delete a note.
@@ -192,7 +194,7 @@ layout, first render (rebuilding all DOM) and redraw actually took.
 ```bash
 npm run dev        # watch build
 npm run typecheck  # strict type-check
-npm test           # 478 unit tests
+npm test           # 490 unit tests
 ```
 
 The directory layering is a hard constraint: `core/` (parsing, serialisation, structural
@@ -212,12 +214,31 @@ If the vault already has this plugin under a differently-named folder, it reuses
 rather than creating a second copy with the same plugin id.
 
 Releases are cut by tag: bump the version in `manifest.json`, `package.json` and `versions.json`,
-then `git tag 1.2.0 && git push origin 1.2.0`. The workflow runs the tests, builds, checks the
+then `git tag 1.3.0 && git push origin 1.3.0`. The workflow runs the tests, builds, checks the
 tag against the manifest, attests provenance and uploads exactly those three files.
 **The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
 
 The full specification (data mapping, serialisation rules, the list of traps) lives in
 [操作手册.md](操作手册.md), in Chinese.
+
+## What's new
+
+### v1.3.0
+
+- **Chinese / English interface**: The interface now follows Obsidian's language — no setting,
+  no restart. English covers the whole UI: menus, commands, settings, the style window and every
+  notice. (Internal error messages from the pure-logic core stay Chinese.)
+- **Show list items as nodes** (new setting, on by default): turn it off for a headings-only map.
+  The option works at parse time, so moving a heading still carries its list body along — nothing
+  is lost, and flipping it back restores the list nodes. While off, operations that would push a
+  node past heading level 6 (where nothing visible could be written) are blocked with a notice.
+- **Colour by level** (new style option, off by default): each level gets its own colour for text
+  and border. The palette comes from Obsidian's built-in colours, so light and dark themes both
+  look right; list levels deeper than 6 cycle the palette. Works at the global and per-note
+  levels with live preview, and selection / hover / drop states stay clearly visible on top.
+- 12 new unit tests (490 in total).
+
+Earlier changes are in the [Releases](../../releases) page.
 
 ## License
 

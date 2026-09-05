@@ -26,6 +26,8 @@ interface Slot {
   selected: boolean
   dragging: boolean
   dropInto: boolean
+  /** 上一次写的层级 class（1–6）。0 = 还没写过。 */
+  level: number
   /** 这一帧刚从池子里认领出来。见 update() 里关掉过渡的那一段。 */
   fresh: boolean
   /** 当前正压着 `transition: none`。记在这里，免得每帧去读一次 el.style。 */
@@ -161,6 +163,7 @@ export class NodeRenderer {
       selected: false,
       dragging: false,
       dropInto: false,
+      level: 0,
       fresh: false,
       noTransition: false,
     }
@@ -239,6 +242,13 @@ export class NodeRenderer {
     if (slot.left !== left) {
       slot.el.classList.toggle('is-left', left)
       slot.left = left
+    }
+    // 多彩标题的层级 class：列表层级可以超过 6，色板按 6 一循环
+    const level = ((node.depth - 1) % 6) + 1
+    if (slot.level !== level) {
+      slot.el.removeClass(`om-l${slot.level}`)
+      slot.el.addClass(`om-l${level}`)
+      slot.level = level
     }
     if (slot.selected !== selected) {
       slot.el.classList.toggle('is-selected', selected)

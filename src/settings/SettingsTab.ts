@@ -5,6 +5,7 @@
  */
 
 import { PluginSettingTab, Setting, type App, type Plugin } from 'obsidian'
+import { t, type MsgKey } from '../i18n'
 import { defaultStyleData, normalizeStyleData, type StyleData, type StyleStore } from './StyleStore'
 
 export interface MindmapSettings {
@@ -16,6 +17,8 @@ export interface MindmapSettings {
   gracefulAnimation: boolean
   /** 严格换行：新增 / 移动节点时，相邻标题之间补足 3 个空行（附录 A.6）。 */
   strictLineBreak: boolean
+  /** 把列表项显示为导图节点。关掉后导图只画标题，列表行只是最近标题的正文。 */
+  listNodes: boolean
   /** 全局样式 + 单篇样式。运行时由 StyleStore 就地读写这一份对象。 */
   styles: StyleData
 }
@@ -25,6 +28,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
   lockFile: false,
   gracefulAnimation: false,
   strictLineBreak: true,
+  listNodes: true,
   styles: defaultStyleData(),
 }
 
@@ -38,6 +42,7 @@ export function normalizeSettings(raw: unknown): MindmapSettings {
     lockFile: bool('lockFile', DEFAULT_SETTINGS.lockFile),
     gracefulAnimation: bool('gracefulAnimation', DEFAULT_SETTINGS.gracefulAnimation),
     strictLineBreak: bool('strictLineBreak', DEFAULT_SETTINGS.strictLineBreak),
+    listNodes: bool('listNodes', DEFAULT_SETTINGS.listNodes),
     styles: normalizeStyleData(o['styles']),
   }
 }
@@ -51,6 +56,8 @@ export interface MindmapHost {
   readonly settings: MindmapSettings
   readonly styles: StyleStore
   saveSettings(): Promise<void>
+  /** 解析类设置变了（如「把列表项显示为节点」）：让所有导图按新规则重新解析当前笔记。 */
+  reloadMindmaps(): void
 }
 
 export class MindmapSettingTab extends PluginSettingTab {
@@ -66,38 +73,26 @@ export class MindmapSettingTab extends PluginSettingTab {
     const { containerEl } = this
     containerEl.empty()
 
-    this.toggle(
-      '单击即跳转',
-      '单击导图节点时，把笔记滚动到对应标题并高亮。只滚屏幕上已经开着的笔记，' +
-        '不会替你新开标签页；笔记没开着（比如用「打开为导图」进来的）时单击只选中节点。',
-      'clickToJump',
-    )
-    this.toggle(
-      '固定显示一篇笔记',
-      '开启后导图不再跟着你切换笔记，一直停在打开它时的那一篇。',
-      'lockFile',
-    )
-    this.toggle(
-      '优雅动画',
-      '节点位置变化时做一段过渡动画。节点较多时会明显变卡，默认关闭。',
-      'gracefulAnimation',
-    )
-    this.toggle(
-      '严格换行',
-      '新增或移动节点时，在相邻的两个标题之间补足 3 个空行。关闭后只写必要的那一行。',
-      'strictLineBreak',
+    this.toggle('settings.clickToJump', 'settings.clickToJumpDesc', 'clickToJump')
+    this.toggle('settings.lockFile', 'settings.lockFileDesc', 'lockFile')
+    this.toggle('settings.gracefulAnimation', 'settings.gracefulAnimationDesc', 'gracefulAnimation')
+    this.toggle('settings.strictLineBreak', 'settings.strictLineBreakDesc', 'strictLineBreak')
+    // 这一项影响解析结果：切完立即让已有的导图按新规则重画，不用关开一次视图
+    this.toggle('settings.listNodes', 'settings.listNodesDesc', 'listNodes', () =>
+      this.host.reloadMindmaps(),
     )
   }
 
-  /** 四个开关长得一模一样，写成一个方法免得同一段代码抄四遍。 */
-  private toggle(name: string, desc: string, key: BooleanSettingKey): void {
+  /** 几个开关长得一模一样，写成一个方法免得同一段代码抄五遍。 */
+  private toggle(name: MsgKey, desc: MsgKey, key: BooleanSettingKey, afterChange?: () => void): void {
     new Setting(this.containerEl)
-      .setName(name)
-      .setDesc(desc)
+      .setName(t(name))
+      .setDesc(t(desc))
       .addToggle((t) =>
         t.setValue(this.host.settings[key]).onChange(async (value) => {
           this.host.settings[key] = value
           await this.host.saveSettings()
+          afterChange?.()
         }),
       )
   }

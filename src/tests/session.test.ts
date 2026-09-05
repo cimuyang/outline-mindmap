@@ -22,7 +22,7 @@ import {
 import type { EditPlan, MindNode, MindTree, ParseOptions } from '../core/types'
 import { allNodes, treeShape } from './helpers'
 
-const STRICT: ParseOptions = { strictLineBreak: true }
+const STRICT: ParseOptions = { strictLineBreak: true, listNodes: true }
 
 function idOf(tree: MindTree, text: string): string {
   const node = allNodes(tree).find((n) => n.text === text)

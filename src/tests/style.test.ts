@@ -248,3 +248,26 @@ describe('sameStyle', () => {
     expect(sameStyle(DEFAULT_STYLE, styleWith({ shape: 'pill' }))).toBe(false)
   })
 })
+
+// ── 多彩标题 ──────────────────────────────────────────────────
+
+describe('colorByLevel', () => {
+  it('脏值收拢：非布尔回退到基准值', () => {
+    expect(normalizeStyle({ colorByLevel: 'yes' }).colorByLevel).toBe(false)
+    expect(normalizeStyle({ colorByLevel: 1 }).colorByLevel).toBe(false)
+    expect(normalizeStyle({ colorByLevel: true }).colorByLevel).toBe(true)
+  })
+
+  it('单篇缺省时跟随全局（以全局为基准补齐）', () => {
+    const data = normalizeStyleData({
+      defaults: { colorByLevel: true },
+      perFile: { 'a.md': {} },
+    })
+    expect(data.defaults.colorByLevel).toBe(true)
+    expect(data.perFile['a.md']?.colorByLevel).toBe(true)
+  })
+
+  it('sameStyle 把它算作差异项', () => {
+    expect(sameStyle(DEFAULT_STYLE, styleWith({ colorByLevel: true }))).toBe(false)
+  })
+})

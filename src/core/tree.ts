@@ -128,6 +128,32 @@ function forcedKind(depth: number, parent: MindNode | null, prefer: NodeKind): N
   return prefer
 }
 
+/**
+ * 子树里相对 `node` 的最大深度落差（自身为 0）。标题层级跳跃会被保留（A.3），
+ * 所以「父挪深一层」可能把某个后代推过第 6 层——预判得看整棵子树，不能只看根。
+ */
+export function maxDepthDrop(node: MindNode): number {
+  let max = 0
+  const walk = (n: MindNode): void => {
+    for (const c of n.children) {
+      max = Math.max(max, c.depth - n.depth)
+      walk(c)
+    }
+  }
+  walk(node)
+  return max
+}
+
+/**
+ * 「忽略列表节点」开着时，深度 ≥ 7 的节点没有可见的写法：列表语法会被解析回正文，
+ * 写进去就是一棵看不见的子树。所有会产生这种节点的操作都必须在这里拦下。
+ */
+function assertWithinHeadings(newDepth: number, drop: number, listNodes: boolean): void {
+  if (!listNodes && newDepth + drop >= 7) {
+    throw new Error(`目标位置深度将达到 ${newDepth + drop}，超过标题的 6 层上限`)
+  }
+}
+
 /** 新节点所在列表块的 listBaseDepth：最近标题祖先 depth + 1。 */
 function baseDepthUnder(parent: MindNode | null): number {
   if (!parent) return 1
@@ -198,6 +224,7 @@ export function insertChild(
   if (position !== 'last') throw new Error(`不支持的插入位置：${position as string}`)
   const parent = parentId === null ? tree.root : mustGet(tree, parentId)
   const depth = parent.depth + 1
+  assertWithinHeadings(depth, 0, options.listNodes)
   const lastChild = parent.children[parent.children.length - 1]
   const kind = forcedKind(depth, parent, lastChild ? lastChild.kind : 'heading')
   const line = serializeNode(text, depth, kind, baseDepthUnder(parent))
@@ -313,6 +340,7 @@ export function moveSubtree(
 
   // 第 3、4 步：新的 depth 与 kind
   const newDepth = newParent ? newParent.depth + 1 : 1
+  assertWithinHeadings(newDepth, maxDepthDrop(node), options.listNodes)
   const newKind: NodeKind = newParent ? forcedKind(newDepth, newParent, node.kind) : 'heading'
 
   // 第 5 步：重新序列化整棵子树（正文随行）

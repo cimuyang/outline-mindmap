@@ -7,7 +7,7 @@ import type { EditPlan, MindTree, ParseOptions } from '../core/types'
 import { allNodes } from './helpers'
 import { FIXTURES } from './fixtures'
 
-const STRICT: ParseOptions = { strictLineBreak: true }
+const STRICT: ParseOptions = { strictLineBreak: true, listNodes: true }
 
 /** 把 {line, ch} 换算成字符偏移，行为与 CodeMirror 一致。 */
 function offsetOf(lines: string[], pos: DocPosition, eol: string): number {

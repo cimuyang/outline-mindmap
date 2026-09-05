@@ -11,6 +11,7 @@
  */
 
 import { Modal, Setting, type App } from 'obsidian'
+import { t, type MsgKey } from '../i18n'
 import type { BranchStyle } from '../layout/types'
 import {
   STYLE_LIMITS,
@@ -20,23 +21,23 @@ import {
   type StyleStore,
 } from './StyleStore'
 
-const SHAPE_LABELS: Record<NodeShape, string> = {
-  rounded: '圆角矩形',
-  pill: '胶囊',
-  underline: '下划线',
+const SHAPE_LABELS: Record<NodeShape, MsgKey> = {
+  rounded: 'shape.rounded',
+  pill: 'shape.pill',
+  underline: 'shape.underline',
 }
 
-const BRANCH_LABELS: Record<BranchStyle, string> = {
-  straight: '直线',
-  curve: '斜线',
-  elbow: '折线',
+const BRANCH_LABELS: Record<BranchStyle, MsgKey> = {
+  straight: 'branch.straight',
+  curve: 'branch.curve',
+  elbow: 'branch.elbow',
 }
 
-const SCHEME_LABELS: Record<ColorScheme, string> = {
-  theme: '跟随主题',
-  blue: '蓝',
-  green: '绿',
-  warm: '暖',
+const SCHEME_LABELS: Record<ColorScheme, MsgKey> = {
+  theme: 'scheme.theme',
+  blue: 'scheme.blue',
+  green: 'scheme.green',
+  warm: 'scheme.warm',
 }
 
 export class StyleModal extends Modal {
@@ -63,7 +64,7 @@ export class StyleModal extends Modal {
     const { contentEl } = this
     contentEl.empty()
     contentEl.createEl('h3', {
-      text: this.title ? `导图样式：${this.title}` : '导图样式',
+      text: this.title ? t('style.titleWithNote', this.title) : t('style.title'),
     })
 
     this.buildActions(contentEl)
@@ -86,14 +87,14 @@ export class StyleModal extends Modal {
   private buildActions(host: HTMLElement): void {
     const bar = host.createDiv({ cls: 'om-style-actions' })
 
-    const toAll = bar.createEl('button', { text: '应用全局设置' })
+    const toAll = bar.createEl('button', { text: t('style.applyGlobal') })
     toAll.addEventListener('click', () => {
       this.settled = true
       this.store.applyGlobal(this.targetPath(), this.draft)
       this.close()
     })
 
-    const single = bar.createEl('button', { text: '应用单篇笔记设置', cls: 'mod-cta' })
+    const single = bar.createEl('button', { text: t('style.applyFile'), cls: 'mod-cta' })
     single.addEventListener('click', () => {
       const path = this.targetPath()
       if (path === null) return
@@ -104,10 +105,10 @@ export class StyleModal extends Modal {
     if (this.path === null) {
       // 没有笔记就没有「单篇」可言。禁用而不是隐藏，免得按钮位置忽左忽右
       single.disabled = true
-      single.setAttribute('aria-label', '当前没有打开的笔记')
+      single.setAttribute('aria-label', t('style.noNote'))
     }
 
-    const cancel = bar.createEl('button', { text: '取消' })
+    const cancel = bar.createEl('button', { text: t('style.cancel') })
     cancel.addEventListener('click', () => {
       this.settled = true
       this.store.clearPreview() // 预览撤销 → 画面回到打开窗口之前的样子
@@ -117,8 +118,8 @@ export class StyleModal extends Modal {
 
   private buildControls(host: HTMLElement): void {
     new Setting(host)
-      .setName('主题间距 · 横向')
-      .setDesc('父节点与子节点之间的水平距离。')
+      .setName(t('style.hGap'))
+      .setDesc(t('style.hGapDesc'))
       .addSlider((s) =>
         s
           .setLimits(STYLE_LIMITS.hGap.min, STYLE_LIMITS.hGap.max, STYLE_LIMITS.hGap.step)
@@ -127,8 +128,8 @@ export class StyleModal extends Modal {
       )
 
     new Setting(host)
-      .setName('主题间距 · 纵向')
-      .setDesc('相邻分支之间的垂直距离。')
+      .setName(t('style.vGap'))
+      .setDesc(t('style.vGapDesc'))
       .addSlider((s) =>
         s
           .setLimits(STYLE_LIMITS.vGap.min, STYLE_LIMITS.vGap.max, STYLE_LIMITS.vGap.step)
@@ -136,24 +137,31 @@ export class StyleModal extends Modal {
           .onChange((v) => this.update({ vGap: v })),
       )
 
-    new Setting(host).setName('节点形状').addDropdown((d) => {
-      for (const [value, label] of Object.entries(SHAPE_LABELS)) d.addOption(value, label)
+    new Setting(host).setName(t('style.shape')).addDropdown((d) => {
+      for (const [value, key] of Object.entries(SHAPE_LABELS)) d.addOption(value, t(key))
       d.setValue(this.draft.shape).onChange((v) => this.update({ shape: v as NodeShape }))
     })
 
-    new Setting(host).setName('分支样式').addDropdown((d) => {
-      for (const [value, label] of Object.entries(BRANCH_LABELS)) d.addOption(value, label)
+    new Setting(host).setName(t('style.branch')).addDropdown((d) => {
+      for (const [value, key] of Object.entries(BRANCH_LABELS)) d.addOption(value, t(key))
       d.setValue(this.draft.branch).onChange((v) => this.update({ branch: v as BranchStyle }))
     })
 
-    new Setting(host).setName('配色方案').addDropdown((d) => {
-      for (const [value, label] of Object.entries(SCHEME_LABELS)) d.addOption(value, label)
+    new Setting(host).setName(t('style.scheme')).addDropdown((d) => {
+      for (const [value, key] of Object.entries(SCHEME_LABELS)) d.addOption(value, t(key))
       d.setValue(this.draft.scheme).onChange((v) => this.update({ scheme: v as ColorScheme }))
     })
 
     new Setting(host)
-      .setName('字号缩放')
-      .setDesc('1.0 表示跟随主题字号。')
+      .setName(t('style.levelColors'))
+      .setDesc(t('style.levelColorsDesc'))
+      .addToggle((s) =>
+        s.setValue(this.draft.colorByLevel).onChange((v) => this.update({ colorByLevel: v })),
+      )
+
+    new Setting(host)
+      .setName(t('style.fontScale'))
+      .setDesc(t('style.fontScaleDesc'))
       .addSlider((s) =>
         s
           .setLimits(

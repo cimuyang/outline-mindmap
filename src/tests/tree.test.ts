@@ -12,8 +12,8 @@ import {
 import type { EditPlan, MindNode, MindTree, ParseOptions } from '../core/types'
 import { allNodes } from './helpers'
 
-const STRICT: ParseOptions = { strictLineBreak: true }
-const LOOSE: ParseOptions = { strictLineBreak: false }
+const STRICT: ParseOptions = { strictLineBreak: true, listNodes: true }
+const LOOSE: ParseOptions = { strictLineBreak: false, listNodes: true }
 
 function idOf(tree: MindTree, text: string): string {
   const node = allNodes(tree).find((n) => n.text === text)
@@ -450,5 +450,35 @@ describe('所有操作产出的 EditPlan 都是合法的', () => {
     ]) {
       expect(applied(tree, plan).startsWith('---\ntags: [a, b]\n---\n')).toBe(true)
     }
+  })
+})
+
+// ── 忽略列表节点：深度上限（第 7 层没有可见写法）──────────────
+
+describe('忽略列表节点：深度上限', () => {
+  const NO_LIST: ParseOptions = { strictLineBreak: true, listNodes: false }
+
+  it('第 6 层节点下不能插入子节点', () => {
+    const tree = parse('# 一\n## 二\n### 三\n#### 四\n##### 五\n###### 六\n')
+    expect(() => insertChild(tree, idOf(tree, '六'), '新', 'last', NO_LIST)).toThrow(/6 层上限/)
+  })
+
+  it('移动子树预判的是整棵子树：根挪得进、后代会越界也不行', () => {
+    // 「三」层级跳跃地挂着第 6 层的「深」（落差 3）：挪到第 5 层的「五」下面，
+    // 自己落在第 6 层没问题，但「深」会被推到第 9 层
+    const tree = parse('# 一\n### 三\n###### 深\n## 兄\n##### 五\n')
+    expect(() => moveSubtree(tree, idOf(tree, '三'), idOf(tree, '五'), 0, NO_LIST)).toThrow(/6 层上限/)
+  })
+
+  it('落差恰好使最深后代到达第 7 层时同样拦下', () => {
+    // 「目」+ 子节点落差 4，挪到第 2 层的「三」下：3 + 4 = 7
+    const tree = parse('# 一\n## 目\n###### 深\n# 另\n## 三\n')
+    expect(() => moveSubtree(tree, idOf(tree, '目'), idOf(tree, '三'), 0, NO_LIST)).toThrow(/将达到 7/)
+  })
+
+  it('显示列表节点时同一批操作不受影响（回归）', () => {
+    const tree = parse('# 一\n###### 六\n## 二\n')
+    expect(() => insertChild(tree, idOf(tree, '六'), '新', 'last', STRICT)).not.toThrow()
+    expect(() => moveSubtree(tree, idOf(tree, '二'), idOf(tree, '六'), 0, STRICT)).not.toThrow()
   })
 })
