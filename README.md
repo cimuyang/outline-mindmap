@@ -12,6 +12,8 @@ copy of the state.
 
 ![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.gif)
 
+![](https://github.com/cimuyang/outline-mindmap/blob/main/demo1.png)
+
 - **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.0**
 - The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
