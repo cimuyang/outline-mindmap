@@ -87,6 +87,208 @@ interface Token {
   font: string
   width: number
   space: boolean
+  /** MathJax 行内公式是一个不可断开的盒子；普通文字才允许超宽时逐字硬断。 */
+  breakable: boolean
+  /** 这一 token 至少需要多高的行盒。普通文字就是 font.lineHeight。 */
+  height: number
+}
+
+interface TexGroup {
+  content: string
+  /** 第一个未被本组消费的字符位置。 */
+  end: number
+}
+
+/** 读取一个允许嵌套的 `{...}` 参数。这里只识别结构，不解释 TeX。 */
+function texGroup(source: string, from: number): TexGroup | null {
+  let start = from
+  while (/\s/.test(source[start] ?? '')) start++
+  if (source[start] !== '{') return null
+
+  let depth = 1
+  for (let i = start + 1; i < source.length; i++) {
+    if (source[i] === '\\') {
+      // `\{` / `\}` 是可见字符，不参与参数配对；普通命令跳过首字母也不影响后续花括号。
+      i++
+      continue
+    }
+    if (source[i] === '{') depth++
+    if (source[i] === '}' && --depth === 0) {
+      return { content: source.slice(start + 1, i), end: i + 1 }
+    }
+  }
+  return null
+}
+
+/** `\frac` / `\overset` 这类双参数命令的最大嵌套深度。 */
+function groupedCommandDepth(source: string, command: RegExp): number {
+  let max = 0
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== '\\') continue
+    const matched = source.slice(i).match(command)?.[0]
+    if (!matched) continue
+    const first = texGroup(source, i + matched.length)
+    const second = first ? texGroup(source, first.end) : null
+    const nested = Math.max(
+      first ? groupedCommandDepth(first.content, command) : 0,
+      second ? groupedCommandDepth(second.content, command) : 0,
+    )
+    max = Math.max(max, 1 + nested)
+    if (second) i = second.end - 1
+  }
+  return max
+}
+
+function dimensionPx(value: string, unit: string, font: FontSpec): number {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 0
+  switch (unit) {
+    case 'em':
+      return number * font.size
+    case 'ex':
+      return number * font.size * 0.5
+    case 'pt':
+      return number * (96 / 72)
+    case 'px':
+      return number
+    case 'pc':
+      return number * 16
+    case 'in':
+      return number * 96
+    case 'cm':
+      return number * (96 / 2.54)
+    case 'mm':
+      return number * (96 / 25.4)
+    case 'mu':
+      return number * (font.size / 18)
+    case 'bp':
+      return number * (96 / 72)
+    case 'dd':
+      return number * (96 / 72) * (1238 / 1157)
+    case 'cc':
+      return number * (96 / 72) * (1238 / 1157) * 12
+    case 'sp':
+      return number * (96 / 72) / 65536
+    default:
+      return 0
+  }
+}
+
+const DIMENSION =
+  '([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))\\s*(em|ex|pt|px|pc|in|cm|mm|mu|bp|dd|cc|sp)'
+
+/** `\\rule[raise]{width}{height}`；raise 是可选的。每次返回新实例供 matchAll/replace 使用。 */
+function rulePattern(): RegExp {
+  return new RegExp(
+    `\\\\rule(?:\\s*\\[${DIMENSION}\\])?\\s*\\{${DIMENSION}\\}\\s*\\{${DIMENSION}\\}`,
+    'g',
+  )
+}
+
+/** MathJax 支持的显式水平空间。结构命令从可见文本移除后，这部分必须单独加回来。 */
+function explicitMathWidth(source: string, font: FontSpec): number {
+  let width = 0
+  const hspace = new RegExp(`\\\\hspace\\*?\\s*\\{${DIMENSION}\\}`, 'g')
+  for (const match of source.matchAll(hspace)) {
+    width += dimensionPx(match[1] as string, match[2] as string, font)
+  }
+  for (const match of source.matchAll(rulePattern())) {
+    width += dimensionPx(match[3] as string, match[4] as string, font)
+  }
+  width += (source.match(/\\qquad\b/g)?.length ?? 0) * font.size * 2
+  width += (source.match(/(?<!q)\\quad\b/g)?.length ?? 0) * font.size
+  return Math.max(0, width)
+}
+
+function explicitRuleHeight(source: string, font: FontSpec): number {
+  let height = 0
+  for (const match of source.matchAll(rulePattern())) {
+    const raise = match[1] && match[2] ? dimensionPx(match[1], match[2], font) : 0
+    const ruleHeight = dimensionPx(match[5] as string, match[6] as string, font)
+    // 正负 raise 分别把 rule 推到基线的上方/下方；取绝对值是保守但不会裁切的包围盒。
+    height = Math.max(height, ruleHeight + Math.abs(raise))
+  }
+  return height
+}
+
+function substackRows(source: string): number {
+  let rows = 1
+  const marker = /\\substack\b/g
+  for (const match of source.matchAll(marker)) {
+    const group = texGroup(source, (match.index ?? 0) + match[0].length)
+    if (group) rows = Math.max(rows, group.content.split('\\\\').length)
+  }
+  return rows
+}
+
+/**
+ * `\\overset{annotation}{body}` 等结构不是“标注或主体谁更高”，而是两个盒子竖向叠放。
+ * 标注由 MathJax 缩成 script style，这里按 75% 加到主体高度，并保留一小段间距。
+ */
+function stackedAnnotationFactor(source: string): number {
+  let factor = 0
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== '\\') continue
+    const matched = source.slice(i).match(/^\\(?:overset|underset|stackrel)\b/)?.[0]
+    if (!matched) continue
+    const annotation = texGroup(source, i + matched.length)
+    const body = annotation ? texGroup(source, annotation.end) : null
+    if (!annotation || !body) continue
+
+    const annotationFactor = mathHeightFactor(annotation.content)
+    const bodyFactor = mathHeightFactor(body.content)
+    factor = Math.max(factor, bodyFactor + annotationFactor * 0.75 + 0.25)
+    i = body.end - 1
+  }
+  return factor
+}
+
+/**
+ * 把 LaTeX 源码压成一份只用于估宽的「视觉近似文本」。控制词和结构花括号不会显示，
+ * 矩阵里的 `\\` 还是纵向换行；若直接拿源码喂 measureText，节点会被这些不可见字符
+ * 撑出几百像素空白。
+ *
+ * 不追求排版器级别的精确：上下标仍按正常字号计算，并额外留出 2em 安全边，保证
+ * 估算宁可稍宽也不要让 MathJax 穿出节点。全程仍是纯字符串 + canvas，不读取 DOM。
+ */
+function mathWidth(
+  source: string,
+  fontString: string,
+  font: FontSpec,
+  c: CanvasRenderingContext2D | null,
+): number {
+  const explicitWidth = explicitMathWidth(source, font)
+  const visualSource = source
+    .replace(new RegExp(`\\\\hspace\\*?\\s*\\{${DIMENSION}\\}`, 'g'), '')
+    .replace(rulePattern(), '')
+    .replace(/\\q{1,2}uad\b/g, '')
+  const rows = visualSource.split('\\\\').map((row) =>
+    row
+      .replace(/\\(?:begin|end)\{[^{}]+\}/g, '')
+      .replace(
+        /\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle|left|right|operatorname|mathrm|mathbf|mathit|mathsf|mathtt|text|textrm|boldsymbol|overline|underline)\b/g,
+        '',
+      )
+      .replace(/\\(?:,|;|:|>| )/g, ' ')
+      .replace(/\\!/g, '')
+      .replace(/\\sqrt\b/g, '√')
+      // 剩下的命令（希腊字母、运算符、关系符等）视觉上通常只占一个字形。
+      .replace(/\\[A-Za-z]+/g, 'M')
+      .replace(/\\([^A-Za-z])/g, '$1')
+      .replace(/[{}_^]/g, '')
+      .replace(/&/g, '  ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  )
+  const measured = Math.max(
+    font.size,
+    ...rows.map((row) => {
+      if (!c) return estimate(row, font.size)
+      c.font = fontString
+      return c.measureText(row).width
+    }),
+  )
+  return measured * 1.2 + font.size * 2 + explicitWidth
 }
 
 function tokenize(text: string, font: FontSpec): Token[] {
@@ -95,6 +297,20 @@ function tokenize(text: string, font: FontSpec): Token[] {
   for (const seg of parseInline(text)) {
     const f = fontOf(seg, font)
     if (c) c.font = f
+    if (seg.math) {
+      // MathJax 最终渲染成 nowrap 的行内盒，公式内部的空格不是 CSS 折行机会，
+      // 所以整段必须作为一个 token。用 LaTeX 源码量宽会偏保守（命令名/花括号本身
+      // 不会显示），但宁可节点稍宽，也不能低估后让公式穿出边框。
+      tokens.push({
+        text: seg.text,
+        font: f,
+        width: mathWidth(seg.text, f, font, c),
+        space: false,
+        breakable: false,
+        height: mathLineHeight(seg.text, font),
+      })
+      continue
+    }
     for (const m of seg.text.match(TOKEN_RE) ?? []) {
       tokens.push({
         text: m,
@@ -102,10 +318,53 @@ function tokenize(text: string, font: FontSpec): Token[] {
         // 没有 canvas（测试环境）时退回一个粗略估算：CJK 按一个字宽，其余按 0.55 字宽
         width: c ? c.measureText(m).width : estimate(m, font.size),
         space: /^[^\S\r\n]+$/.test(m),
+        breakable: true,
+        height: font.lineHeight,
       })
     }
   }
   return tokens
+}
+
+/**
+ * MathJax 的 CHTML `mjx-container` 自己是 `line-height: 0`，真实字形仍会向基线上下伸出。
+ * canvas 只能量普通文字，量不到分数线、根号、矩阵的高度；这里做【保守预留】而不是
+ * 在 500 个节点上逐个读 DOM 尺寸（那会破坏本插件一直坚持的无强制重排渲染链路）。
+ *
+ * 普通行内公式多留 25%；多行环境按行数继续增高。防止把公式裁进边框。
+ */
+function mathHeightFactor(source: string): number {
+  let factor = 1.25
+  if (/\\(?:d?frac|sqrt|sum|prod|int|lim)\b/.test(source) || /[_^]/.test(source)) factor = 1.35
+
+  const fractionDepth = groupedCommandDepth(source, /^\\(?:dfrac|tfrac|frac)\b/)
+  if (fractionDepth > 0) factor = Math.max(factor, 1.35 + (fractionDepth - 1) * 0.35)
+
+  // `\dfrac` 在分子/分母里仍强制 display style，比会自动缩小的普通 `\frac` 更高。
+  const displayFractionDepth = groupedCommandDepth(source, /^\\dfrac\b/)
+  if (displayFractionDepth > 0) {
+    factor = Math.max(factor, 1.5 + (displayFractionDepth - 1) * 0.75)
+  }
+
+  factor = Math.max(factor, stackedAnnotationFactor(source))
+
+  const stackRows = substackRows(source)
+  if (stackRows > 1) factor = Math.max(factor, 1.35 + (stackRows - 1) * 0.9)
+
+  if (/\\begin\{(?:[pbBvV]?matrix|cases|aligned|array|gathered)\}/.test(source)) {
+    // LaTeX 里的 `\\` 是换行；MathJax 的括号/大括号还会随整张表拉伸，实测每多
+    // 一行约增加 1.05 个普通行高。这里把伸缩符号和行间距都算进去，不能只按文字行距预留。
+    const rows = Math.max(1, source.split('\\\\').length)
+    factor = Math.max(factor, 1 + (rows - 1) * 1.05)
+  }
+  return factor
+}
+
+function mathLineHeight(source: string, font: FontSpec): number {
+  const factor = mathHeightFactor(source)
+  // `\rule{w}{h}` 常被间接用于 phantom / 自定义排版；高度是用户显式指定的，不能压成字形。
+  const explicitHeight = explicitRuleHeight(source, font)
+  return Math.ceil(Math.max(font.lineHeight * factor, explicitHeight + font.size * 0.15))
 }
 
 function estimate(text: string, size: number): number {
@@ -127,17 +386,24 @@ function measureChar(ch: string, fontStr: string, size: number): number {
  *
  * 行尾空白不计入行宽（CSS 也不计）。
  */
-function wrap(tokens: Token[], maxWidth: number, size: number): { width: number; lines: number } {
-  let lines = 1
+function wrap(
+  tokens: Token[],
+  maxWidth: number,
+  size: number,
+  baseLineHeight: number,
+): { width: number; height: number } {
   let cur = 0
   let curNoTrail = 0
   let maxLine = 0
+  let lineHeight = baseLineHeight
+  let totalHeight = 0
 
   const breakLine = (): void => {
     if (curNoTrail > maxLine) maxLine = curNoTrail
-    lines++
+    totalHeight += lineHeight
     cur = 0
     curNoTrail = 0
+    lineHeight = baseLineHeight
   }
 
   for (const t of tokens) {
@@ -148,7 +414,7 @@ function wrap(tokens: Token[], maxWidth: number, size: number): { width: number;
       continue
     }
     if (cur > 0 && cur + t.width > maxWidth) breakLine()
-    if (t.width > maxWidth) {
+    if (t.breakable && t.width > maxWidth) {
       // 单个词就超宽 → 按字符硬断
       for (const ch of t.text) {
         const cw = measureChar(ch, t.font, size)
@@ -160,9 +426,11 @@ function wrap(tokens: Token[], maxWidth: number, size: number): { width: number;
     }
     cur += t.width
     curNoTrail = cur
+    lineHeight = Math.max(lineHeight, t.height)
   }
   if (curNoTrail > maxLine) maxLine = curNoTrail
-  return { width: maxLine, lines }
+  totalHeight += lineHeight
+  return { width: maxLine, height: totalHeight }
 }
 
 const cache = new Map<string, Size>()
@@ -182,10 +450,10 @@ export function measureNode(text: string, font: FontSpec): Size {
   if (hit) return hit
 
   const tokens = tokenize(text, font)
-  const { width, lines } = wrap(tokens, MAX_TEXT_WIDTH, font.size)
+  const { width, height } = wrap(tokens, MAX_TEXT_WIDTH, font.size, font.lineHeight)
   const size: Size = {
     w: Math.max(MIN_TEXT_WIDTH, Math.ceil(width) + 1) + PADDING_X * 2 + BORDER * 2,
-    h: lines * font.lineHeight + PADDING_Y * 2 + BORDER * 2,
+    h: height + PADDING_Y * 2 + BORDER * 2,
   }
 
   if (cache.size >= CACHE_LIMIT) cache.clear()

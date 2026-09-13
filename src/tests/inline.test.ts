@@ -178,11 +178,11 @@ describe('tagsFor', () => {
  *
  * 旧实现拼 HTML 字符串，所以要测「`<script>` 有没有被转义成实体」。现在 inline.ts
  * 【不再产出任何 HTML】：标记字符原样留在片段的 text 里，由 NodeRenderer 走
- * createEl + setText 写进 DOM。所以这里改成守住新的不变量——尖括号不被当语法、
+ * createEl + appendText 写进 DOM。所以这里改成守住新的不变量——尖括号不被当语法、
  * 原样带过，一个字符都不增删。
  *
  * 「标签不会被执行」这一半不在这里测：测试环境是 node，没有 DOM。它由渲染层的
- * 类型本身保证——tagsFor 只报出固定的五个标签名，片段文字只经 setText 落地，
+ * 类型本身保证——tagsFor 只报出固定的五个标签名，片段文字只经文本节点落地，
  * 代码里没有任何一处能把字符串当 HTML 解析（见 NodeRenderer.renderTextInto）。
  */
 describe('parseInline：HTML 不是语法', () => {
@@ -199,5 +199,60 @@ describe('parseInline：HTML 不是语法', () => {
 
   it('标签夹在强调里也不影响强调本身', () => {
     expect(parseInline('**<b>x</b>**')).toEqual([{ ...plain('<b>x</b>'), bold: true }])
+  })
+})
+
+describe('parseInline：行内公式', () => {
+  it('`$...$` 单独切成公式片段，定界符不进入公式源码', () => {
+    expect(parseInline('位权：$2^i$')).toEqual([
+      plain('位权：'),
+      { ...plain('2^i'), math: true },
+    ])
+  })
+
+  it('公式内部的 Markdown 标记保持为 LaTeX 源码，不参与强调解析', () => {
+    expect(parseInline('$a*b**c$')).toEqual([
+      { ...plain('a*b**c'), math: true },
+    ])
+  })
+
+  it('一行可以有多个公式，公式之间的普通文字照常解析', () => {
+    expect(parseInline('$x$ + $y$')).toEqual([
+      { ...plain('x'), math: true },
+      plain(' + '),
+      { ...plain('y'), math: true },
+    ])
+  })
+
+  it('公式继承外层强调，但强调标记不进入公式源码', () => {
+    expect(parseInline('**$x^2$**')).toEqual([
+      { ...plain('x^2'), bold: true, math: true },
+    ])
+  })
+
+  it('转义美元符号与未闭合美元符号都保持普通文字', () => {
+    expect(parseInline('价格：\\$5')).toEqual([plain('价格：$5')])
+    expect(parseInline('未闭合 $x')).toEqual([plain('未闭合 $x')])
+  })
+
+  it('跟随 Obsidian 的边界规则：内侧空格和价格串不误判成公式', () => {
+    expect(parseInline('公式 $ x $')).toEqual([plain('公式 $ x $')])
+    expect(parseInline('价格 $5 和 $10')).toEqual([plain('价格 $5 和 $10')])
+    expect(parseInline('价格区间 $5-$10')).toEqual([plain('价格区间 $5-$10')])
+    expect(parseInline('单价对比 $5/$10')).toEqual([plain('单价对比 $5/$10')])
+  })
+
+  it('同一节点里公式后接价格时，只渲染真正的公式', () => {
+    const segments = parseInline(String.raw`温度 $T_1=273.15\,\mathrm{K}$，价格 $5 和 $10`)
+    expect(segments.filter((segment) => segment.math).map((segment) => segment.text)).toEqual([
+      String.raw`T_1=273.15\,\mathrm{K}`,
+    ])
+    expect(plainText(String.raw`温度 $T_1=273.15\,\mathrm{K}$，价格 $5 和 $10`)).toContain(
+      '价格 $5 和 $10',
+    )
+  })
+
+  it('`$$...$$` 不冒充行内公式', () => {
+    expect(parseInline('$$x^2$$')).toEqual([plain('$$x^2$$')])
   })
 })

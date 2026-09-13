@@ -5,6 +5,7 @@
  * 【不要挂 500 个监听器】——这里一个监听器都不挂，事件由 MindmapView 委托到容器上。
  */
 
+import { finishRenderMath, renderMath } from 'obsidian'
 import type { MindNode } from '../core/types'
 import { sideOf, type NodeSide } from '../layout'
 import type { Box, LayoutResult } from '../layout/types'
@@ -70,6 +71,7 @@ export class NodeRenderer {
     rootSide: NodeSide = 'right',
   ): void {
     const keep = new Set<string>()
+    let needsMathFinish = false
 
     for (const node of nodes) {
       const box = boxes.get(node.id)
@@ -77,7 +79,9 @@ export class NodeRenderer {
       keep.add(node.id)
       const slot = this.active.get(node.id) ?? this.acquire(node.id)
       const parentBox = node.parent ? boxes.get(node.parent.id) : undefined
-      this.update(slot, node, box, selected.has(node.id), sideOf(box, parentBox, rootSide))
+      if (this.update(slot, node, box, selected.has(node.id), sideOf(box, parentBox, rootSide))) {
+        needsMathFinish = true
+      }
     }
 
     for (const [id, slot] of this.active) {
@@ -92,6 +96,14 @@ export class NodeRenderer {
     if (this.incoming) {
       this.layer.appendChild(this.incoming)
       this.incoming = null
+    }
+
+    // renderMath() 会把公式 DOM 同步造出来，但 MathJax 的自适应样式要在一批公式都
+    // render 完之后统一 flush。一次 draw 最多调用一次，绝不能每个节点各 flush 一遍。
+    if (needsMathFinish) {
+      void finishRenderMath().catch((err: unknown) => {
+        console.warn('[outline-mindmap] finishRenderMath failed', err)
+      })
     }
   }
 
@@ -172,20 +184,36 @@ export class NodeRenderer {
   /**
    * 把内联 Markdown 建成真实 DOM 填进节点文字区。
    *
-   * 用 createEl + textContent 而不是 innerHTML：笔记里的 `<script>`、
-   * `<img onerror=…>` 到了 textContent 就只是字符（陷阱 13），
+   * 用 createEl + appendText 而不是 innerHTML：笔记里的 `<script>`、
+   * `<img onerror=…>` 到了文本节点就只是字符（陷阱 13），
    * 不存在「哪天漏了一次转义」这种可能。
    */
-  private static renderTextInto(host: HTMLElement, text: string): void {
+  private static renderTextInto(host: HTMLElement, text: string): boolean {
     host.empty()
+    let renderedMath = false
     for (const seg of parseInline(text)) {
       // 内层在前、外层在后，所以从后往前套：strong > em > mark > s > span.om-link > 文字
       let target = host
       for (const { tag, cls } of tagsFor(seg).reverse()) {
         target = target.createEl(tag, cls ? { cls } : undefined)
       }
-      target.setText(seg.text)
+      if (seg.math) {
+        try {
+          const math = renderMath(seg.text, false)
+          math.addClass('om-math')
+          target.appendChild(math)
+          renderedMath = true
+        } catch {
+          // MathJax 尚未就绪或公式本身异常时，保留可编辑的源码。
+          target.appendText(`$${seg.text}$`)
+        }
+      } else {
+        // 不能用 host.setText：一行里有「普通文字 + 强调/链接/公式 + 普通文字」时，
+        // 后一个纯文字片段会把前面已经创建的子节点整棵清掉。appendText 才是逐片段拼接。
+        target.appendText(seg.text)
+      }
     }
+    return renderedMath
   }
 
   private applyDragging(id: string, on: boolean): void {
@@ -202,7 +230,14 @@ export class NodeRenderer {
     slot.dropInto = on
   }
 
-  private update(slot: Slot, node: MindNode, box: Box, selected: boolean, side: NodeSide): void {
+  private update(
+    slot: Slot,
+    node: MindNode,
+    box: Box,
+    selected: boolean,
+    side: NodeSide,
+  ): boolean {
+    let renderedMath = false
     // 「优雅动画」开着时，节点位置的变化会走 CSS 过渡（M9 的布局切换动画就是它）。
     // 但刚认领的元素不能过渡：新出现的节点会从原点飞进来，池子里回收来的还会
     // 带着上一个节点的位置横穿整个画面。这一帧先把过渡关掉，下一帧再交还给 CSS。
@@ -216,7 +251,7 @@ export class NodeRenderer {
     }
 
     if (slot.text !== node.text) {
-      NodeRenderer.renderTextInto(slot.textEl, node.text)
+      renderedMath = NodeRenderer.renderTextInto(slot.textEl, node.text)
       slot.text = node.text
     }
 
@@ -266,5 +301,6 @@ export class NodeRenderer {
       slot.el.classList.toggle('is-drop-into', dropInto)
       slot.dropInto = dropInto
     }
+    return renderedMath
   }
 }
