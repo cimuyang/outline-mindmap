@@ -184,7 +184,7 @@ layout, first render (rebuilding all DOM) and redraw actually took.
 
 ## Known limitations
 
-- Text-only maps: no summaries, no free-form connections, no images, notes or formulas.
+- Text-only maps: no summaries, no free-form connections, no images, no notes.
 - Collapsed state is not persisted; switching notes resets it.
 - Task list items `- [ ]` are treated as plain text; ordered lists are read fine but written
   back as `-`.
