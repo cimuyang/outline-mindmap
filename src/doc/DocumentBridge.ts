@@ -23,6 +23,7 @@ import { joinLines, splitLines } from '../core/parser'
 import type { EditPlan } from '../core/types'
 import { planToChanges } from './changes'
 import { clearHighlight, revealAndHighlight } from './highlight'
+import { clearPreviewHighlight, revealPreviewLine } from './preview'
 
 export interface DocumentChange {
   file: TFile
@@ -45,6 +46,8 @@ function hashText(text: string): number {
 const DEBOUNCE_MS = 16
 /** 待确认的自写 hash 保留条数。一个防抖窗口内最多也就连打这么几次。 */
 const PENDING_LIMIT = 16
+/** 长文档阅读模式给 Obsidian 渲染目标区块的最长等待时间。 */
+const PREVIEW_REVEAL_TIMEOUT_MS = 1000
 
 export class DocumentBridge {
   private file: TFile | null = null
@@ -61,6 +64,13 @@ export class DocumentBridge {
   private writes: Promise<void> = Promise.resolve()
   /** 当前有本插件行高亮的文件。 */
   private highlighted: TFile | null = null
+  /** 阅读模式下当前高亮的渲染块。 */
+  private highlightedPreview: HTMLElement | null = null
+  /** 长文档的目标区块可能尚未渲染；下面四项共同托管一次有界等待。 */
+  private previewObserver: MutationObserver | null = null
+  private previewRevealFrame: number | null = null
+  private previewRevealTimeout: number | null = null
+  private previewRevealToken = 0
 
   constructor(
     private readonly app: App,
@@ -190,10 +200,10 @@ export class DocumentBridge {
   // ── 定位跳转与高亮（M4）──────────────────────────────────────
 
   /**
-   * 把编辑器滚动到某一行并高亮，【不抢键盘焦点、也不打开任何东西】。
+   * 把当前可见的笔记滚动到某一行并高亮，【不抢键盘焦点、也不打开任何东西】。
    *
    * 焦点这件事有两个坑，都在这里绕开了：
-   * - 只滚【已经看得见】的编辑器，绝不新开标签页、不分栏、不切前台；
+   * - 只滚【已经看得见】的笔记，绝不新开标签页、不分栏、不切前台；
    * - 滚动只发 CM 的 scrollIntoView 效果，不设置选区（设了选区 = 光标进了编辑器）。
    *
    * @param line 0-based 行号（`MindNode.titleLine`）
@@ -202,6 +212,11 @@ export class DocumentBridge {
     const view = this.visibleViewFor(file)
     if (!view) return
     this.clearHighlight()
+
+    if (view.getMode() === 'preview') {
+      this.revealInPreview(view, file, line)
+      return
+    }
 
     const cm = cmOf(view.editor)
     if (cm) {
@@ -243,6 +258,10 @@ export class DocumentBridge {
    * 攥着一个已经销毁的编辑器实例就是泄漏（M4 验收最后一条）。
    */
   clearHighlight(): void {
+    this.cancelPendingPreviewReveal()
+    clearPreviewHighlight(this.highlightedPreview)
+    this.highlightedPreview = null
+
     const file = this.highlighted
     this.highlighted = null
     if (!file) return
@@ -252,12 +271,77 @@ export class DocumentBridge {
   }
 
   /**
-   * 【此刻屏幕上真的看得见】的那个编辑器，否则 null。
+   * 阅读模式长文档的两阶段定位：
+   * 1. 目标区块已渲染时直接居中；
+   * 2. 否则先让 Obsidian 按源码行滚到那里，再等它把区块放进 DOM。
+   *
+   * MutationObserver 只在这最多 1 秒内存活，回调合并到 rAF；连续点击会用 token
+   * 取消上一次，所以旧目标绝不会在稍后反跳回来。
+   */
+  private revealInPreview(view: MarkdownView, file: TFile, line: number): void {
+    const preview = view.previewMode
+    const token = this.previewRevealToken
+
+    const reveal = (): boolean => {
+      if (token !== this.previewRevealToken) return false
+      const cache = this.app.metadataCache.getFileCache(file)
+      const target = revealPreviewLine(preview, cache, file.path, line)
+      if (!target) return false
+      this.highlightedPreview = target
+      this.cancelPendingPreviewReveal()
+      return true
+    }
+
+    if (reveal()) return
+
+    const attempt = (): void => {
+      this.previewRevealFrame = null
+      if (token !== this.previewRevealToken) return
+      const current = this.visibleViewFor(file)
+      if (current !== view || current.getMode() !== 'preview') {
+        this.cancelPendingPreviewReveal()
+        return
+      }
+      reveal()
+    }
+    const queueAttempt = (): void => {
+      if (token !== this.previewRevealToken || this.previewRevealFrame !== null) return
+      this.previewRevealFrame = window.requestAnimationFrame(attempt)
+    }
+
+    this.previewObserver = new MutationObserver(queueAttempt)
+    this.previewObserver.observe(preview.containerEl, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-om-line-start', 'data-om-line-end', 'data-om-source-path'],
+    })
+    this.previewRevealTimeout = window.setTimeout(() => {
+      if (token === this.previewRevealToken) this.cancelPendingPreviewReveal()
+    }, PREVIEW_REVEAL_TIMEOUT_MS)
+
+    // applyScroll 的参数是源码行号。它只滚当前预览，不切模式、不抢焦点。
+    preview.applyScroll(line)
+    queueAttempt()
+  }
+
+  private cancelPendingPreviewReveal(): void {
+    this.previewRevealToken++
+    this.previewObserver?.disconnect()
+    this.previewObserver = null
+    if (this.previewRevealFrame !== null) window.cancelAnimationFrame(this.previewRevealFrame)
+    if (this.previewRevealTimeout !== null) window.clearTimeout(this.previewRevealTimeout)
+    this.previewRevealFrame = null
+    this.previewRevealTimeout = null
+  }
+
+  /**
+   * 【此刻屏幕上真的看得见】的那个 Markdown 视图，否则 null。
    *
    * 跳转是一个纯粹的「顺带」动作：笔记就在旁边开着，点节点时让它滚到对应行，很自然；
    * 笔记没开着（或压在别的标签页后面）时却替用户开一个 / 切一个，就变成了抢地方——
    * 「打开为导图」之后尤其明显，那正是用户表示「我现在只想编辑导图」的时候。
-   * 所以这里【只认已经露着的编辑器】：不开、不分栏、不 reveal、不切前台。
+   * 所以这里【只认已经露着的笔记】：不开、不分栏、不 reveal、不切前台。
    *
    * 顺带一提，藏起来的编辑器也确实滚不动：没上过屏的 CodeMirror 还没量过布局，
    * `scrollIntoView` 那一下本来就是空放。

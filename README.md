@@ -14,14 +14,14 @@ copy of the state.
 
 ![](https://github.com/cimuyang/outline-mindmap/blob/main/demo1.png)
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.0**
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.1**
 - The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
 ## Features
 
 1. **Plain Markdown in, clean Markdown out**: Headings and lists become a mindmap on their own — no YAML, no injected properties, no hidden comments. Every setting lives in the plugin's own `data.json`. Your Markdown stays Markdown, and stays usable anywhere.
 2. **Two-way live sync**: Edit the note and the map follows; drag a node and the note updates. Write-back replaces only that line — every byte outside it is untouched — and one action is one undo, so the two sides never drift apart.
-3. **Click to locate**: Click a node and the note scrolls to the matching line and highlights it; double-click to rename. After you add, rename or drag a node, the note stays right where you were working — outline and prose, no seam in between.
+3. **Click to locate**: Click a node and the visible note scrolls to the matching line and highlights it in both Editing and Reading view; double-click to rename. After you add, rename or drag a node, the note stays right where you were working — outline and prose, no seam in between.
 4. **Note ⇄ map, in place**: *打开为导图* (Open as mindmap) turns the current tab into a map; *打开为笔记* (Open as note) turns it back. Same tab, no extra tabs piling up.
 5. **Drag to rearrange**: Drop on a node's top or bottom edge to insert before or after, drop in the middle to make it a child, drop on empty space to start a new root. Cross the 6th level and headings and list items convert automatically — with the body text underneath moving along.
 6. **Keyboard-first**: `Enter` for a sibling, `Tab` for a child, arrow keys to move around, `Delete` to remove a whole subtree, `Esc` to abandon anything without writing a byte. Your hands never leave the keys.
@@ -99,6 +99,10 @@ Inline markup in node text — `**bold**`, `*italic*`, `***bold italic***`, `==h
 `~~strikethrough~~` — is rendered as such and nests freely. An unpaired `*` (as in `2 * 3`) is
 plain text and is never swallowed.
 
+Inline math written as `$...$` is rendered by Obsidian's own MathJax engine. Math can sit next
+to ordinary text and other inline markup; malformed expressions fall back to their editable
+source instead of breaking the map. Display-math blocks (`$$...$$`) remain note body content.
+
 Links show **only the readable part**, so paths and URLs cost no node width:
 
 | In the note | Shown in the map |
@@ -144,7 +148,7 @@ Expand all · Collapse all · Style settings.
 
 | Toggle | Default | What it does |
 | --- | --- | --- |
-| 单击即跳转 (Click to jump) | On | Clicking a node scrolls the note to the matching heading and highlights it (focus stays on the map); after you create / rename / delete / drag a node, the note also stays at that node. **It only scrolls an editor that is already visible on screen** — it never opens a tab, never splits a pane, never pulls a background tab to the front. Turn it off and a click only selects |
+| 单击即跳转 (Click to jump) | On | Clicking a node scrolls the visible note to the matching heading or list item and highlights it in both Editing and Reading view (focus stays on the map); after you create / rename / delete / drag a node, the note also stays at that node. **It only scrolls a note that is already visible on screen** — it never opens a tab, never splits a pane, never pulls a background tab to the front. Turn it off and a click only selects |
 | 固定显示一篇笔记 (Always show one note) | Off | The map stops following the active note and stays on the one it was opened with |
 | 优雅动画 (Smooth animation) | **Off** | Smooth transitions for node movement, layout switching and the viewport follow on expand/collapse. Noticeably slower with many nodes |
 | 严格换行 (Strict blank lines) | On | When adding / moving nodes, pad adjacent headings to 3 blank lines apart |
@@ -216,7 +220,7 @@ If the vault already has this plugin under a differently-named folder, it reuses
 rather than creating a second copy with the same plugin id.
 
 Releases are cut by tag: bump the version in `manifest.json`, `package.json` and `versions.json`,
-then `git tag 1.3.0 && git push origin 1.3.0`. The workflow runs the tests, builds, checks the
+then `git tag 1.3.1 && git push origin 1.3.1`. The workflow runs the tests, builds, checks the
 tag against the manifest, attests provenance and uploads exactly those three files.
 **The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
 
@@ -224,6 +228,16 @@ The full specification (data mapping, serialisation rules, the list of traps) li
 [操作手册.md](操作手册.md), in Chinese.
 
 ## What's new
+
+### v1.3.1
+
+- **Click-to-locate now works in Reading view**: heading and list nodes are resolved from their
+  source line and rendered-section range, so virtualized long notes, duplicate headings, inline
+  formatting and formulas still land on the correct rendered block. The visible block is
+  centred and highlighted without changing view mode or stealing focus.
+- **Inline math in nodes**: `$...$` expressions are rendered with Obsidian's MathJax engine,
+  with source fallback for invalid formulas and sizing that keeps complex formulas inside nodes.
+- 517 automated checks cover the pure logic and Obsidian-facing math integration.
 
 ### v1.3.0
 

@@ -1,5 +1,6 @@
 import { Notice, Plugin, TFile, type WorkspaceLeaf } from 'obsidian'
 import { highlightExtension } from './doc/highlight'
+import { annotatePreviewSection } from './doc/preview'
 import { t } from './i18n'
 import {
   MindmapSettingTab,
@@ -22,6 +23,11 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new MindmapView(leaf, this))
     // 行高亮的 CM 扩展。注册在插件上，卸载插件时 Obsidian 自动摘掉。
     this.registerEditorExtension(highlightExtension())
+    // 阅读模式是分块渲染的。只记录 Obsidian 公开的源码范围，不改渲染内容。
+    this.registerMarkdownPostProcessor((element, context) => {
+      const info = context.getSectionInfo(element)
+      if (info) annotatePreviewSection(element, context.sourcePath, info)
+    })
     this.addSettingTab(new MindmapSettingTab(this.app, this, this))
 
     // 单篇样式的 key 是文件路径（陷阱 7）：改名 / 移动要迁移，删除要清理，

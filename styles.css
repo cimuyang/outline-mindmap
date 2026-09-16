@@ -470,6 +470,12 @@
   border-radius: 3px;
 }
 
+/* 阅读模式没有 CodeMirror 行装饰，直接高亮定位到的渲染块。 */
+.om-jump-preview {
+  background: var(--text-selection);
+  border-radius: 3px;
+}
+
 .om-viewport:focus,
 .om-viewport:focus-visible {
   /* 导图容器只是焦点的落脚点，不该画一圈焦点框 */
