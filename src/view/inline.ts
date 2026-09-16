@@ -4,7 +4,7 @@
  * 另外把 `[[wiki 链接]]` 与 `[文字](url)` 解析成【只显示可读文字】的链接片段。
  *
  * 【陷阱 13】笔记内容未转义就 innerHTML —— 笔记里的 `<script>` 会被执行。
- * 本文件【不再生成任何 HTML 字符串】：片段交给 NodeRenderer 用 createEl + textContent
+ * 本文件【不再生成任何 HTML 字符串】：片段交给 NodeRenderer 用 createEl + 文本节点
  * 组装成真实 DOM，转义因此是结构性的，不存在忘记转义的可能。
  *
  * 本文件零依赖、零 DOM，可以直接单测。
@@ -18,13 +18,15 @@ export interface InlineSegment {
   strike: boolean
   /** 这一段是链接的可读文字。只做视觉区分，不可点击（导图的单击已经用于跳转笔记）。 */
   link: boolean
+  /** 这一段是 `$...$` 行内 LaTeX；text 里只放公式源码，不含美元定界符。 */
+  math?: boolean
 }
 
 /** 顺序即优先级：必须先匹配最长的 `***`，否则会被拆成 `**` + `*`。 */
 const MARKERS = ['***', '**', '*', '==', '~~'] as const
 type Marker = (typeof MARKERS)[number]
 
-const ESCAPABLE = new Set(['*', '=', '~', '\\'])
+const ESCAPABLE = new Set(['*', '=', '~', '$', '\\'])
 
 function markerAt(text: string, i: number): Marker | null {
   for (const m of MARKERS) {
@@ -45,14 +47,58 @@ function hasCloser(text: string, from: number, marker: Marker): boolean {
   return false
 }
 
-function styleOf(stack: Marker[], link: boolean): Omit<InlineSegment, 'text'> {
+function styleOf(stack: Marker[], link: boolean, math = false): Omit<InlineSegment, 'text'> {
   return {
     bold: stack.includes('**') || stack.includes('***'),
     italic: stack.includes('*') || stack.includes('***'),
     highlight: stack.includes('=='),
     strike: stack.includes('~~'),
     link,
+    ...(math ? { math: true } : {}),
   }
+}
+
+interface MathMatch {
+  /** 不含 `$` 定界符的 LaTeX 源码。 */
+  text: string
+  /** 整个 `$...$` 在原文里占的长度。 */
+  length: number
+}
+
+/**
+ * 从 `i` 处读取 Obsidian 风格的 `$...$` 行内公式。
+ *
+ * - `$$...$$` 留给块公式，不在节点里偷偷降级成行内公式；
+ * - `\$` 已在主循环的转义分支吃掉，不会走到这里；
+ * - 公式内部的 `*` / `==` / `~~` 都是 LaTeX 源码，不再进入 Markdown 强调解析；
+ * - 跳过 `\$`，允许公式源码本身出现转义美元符号。
+ */
+function mathAt(text: string, i: number): MathMatch | null {
+  if (text[i] !== '$') return null
+  if (text[i - 1] === '$' || text[i + 1] === '$') return null
+  // `$ x $` 不按行内公式处理。除了更贴近 Obsidian 的书写习惯，也能避免把
+  // `价格 $5 和 $10` 这种普通正文从第一个 `$` 一路吃到第二个 `$`。
+  if (i + 1 >= text.length || /\s/.test(text[i + 1] as string)) return null
+
+  for (let j = i + 1; j < text.length; j++) {
+    if (text[j] === '\\') {
+      j++
+      continue
+    }
+    if (text[j] !== '$') continue
+    // 不把 `$$` 的任意一半误认成行内公式的闭合符。
+    if (text[j - 1] === '$' || text[j + 1] === '$') continue
+    if (j === i + 1) return null // `$$` 之外也不接受空公式 `$$` 的变体
+    // 闭合 `$` 前也不能是空白；遇到这样的第一个候选就判定这一处 opening 不是公式，
+    // 不继续跨过它去找更远的 `$`，否则价格串仍可能被误配成超长公式。
+    if (/\s/.test(text[j - 1] as string)) return null
+    const source = text.slice(i + 1, j)
+    // `$5-$10` / `$5/$10` 的第二个美元符是下一个金额的前缀，不是公式闭合符。
+    // 只收窄「纯数字金额 + 区间/比值分隔符 + 下一个数字」这一形状，`$2^i$` 等数制公式不受影响。
+    if (/^\d+(?:[.,]\d+)?[-–—/]$/.test(source) && /\d/.test(text[j + 1] ?? '')) return null
+    return { text: source, length: j + 1 - i }
+  }
+  return null
 }
 
 /** `[[目标|别名]]` / `[文字](url)` 的匹配结果。 */
@@ -118,9 +164,9 @@ export function parseInline(text: string): InlineSegment[] {
   let buf = ''
 
   /** @param link 这一批文字是不是链接的可读文字。链接片段单独 flush，不与普通文字合并。 */
-  const flush = (link = false): void => {
+  const flush = (link = false, math = false): void => {
     if (buf === '') return
-    const style = styleOf(stack, link)
+    const style = styleOf(stack, link, math)
     const last = segs[segs.length - 1]
     if (
       last &&
@@ -128,7 +174,8 @@ export function parseInline(text: string): InlineSegment[] {
       last.italic === style.italic &&
       last.highlight === style.highlight &&
       last.strike === style.strike &&
-      last.link === style.link
+      last.link === style.link &&
+      last.math === style.math
     ) {
       last.text += buf
     } else {
@@ -154,6 +201,17 @@ export function parseInline(text: string): InlineSegment[] {
         buf = link.text
         flush(true)
         i += link.length
+        continue
+      }
+    }
+    // 公式优先于强调标记：`$a*b**c$` 里的星号属于 LaTeX，不能被 Markdown 吃掉。
+    if (ch === '$') {
+      const math = mathAt(text, i)
+      if (math) {
+        flush()
+        buf = math.text
+        flush(false, true)
+        i += math.length
         continue
       }
     }

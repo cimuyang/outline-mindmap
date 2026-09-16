@@ -273,6 +273,14 @@
 }
 
 /*
+ * `$...$` 行内公式由 Obsidian 自带 MathJax 渲染。
+ * measure.ts 把整条公式当成一个不可拆分的 token，因此 DOM 也必须保持同样的折行语义。
+ */
+.om-node-text .om-math {
+  white-space: nowrap;
+}
+
+/*
  * 复用池里待命的元素、以及叶子节点的折叠按钮。
  *
  * 用 class 而不是直接写 el.style.display：审查规则 no-static-styles-assignment

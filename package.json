@@ -9,7 +9,9 @@
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
     "deploy": "npm run build && node scripts/deploy.mjs",
     "typecheck": "tsc --noEmit --skipLibCheck",
-    "test": "vitest run --passWithNoTests",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest"
   },
   "keywords": [],

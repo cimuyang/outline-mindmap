@@ -14,6 +14,7 @@
 import {
   ItemView,
   Notice,
+  loadMathJax,
   type Menu,
   type TFile,
   type ViewStateResult,
@@ -239,6 +240,15 @@ export class MindmapView extends ItemView {
   }
 
   override async onOpen(): Promise<void> {
+    // NodeRenderer 直接复用 Obsidian 的 renderMath()，因此在第一次画节点之前把 MathJax
+    // 准备好。放在「导图视图打开」而不是插件 onload：从不用导图的人不会为它付启动成本。
+    try {
+      await loadMathJax()
+    } catch (err: unknown) {
+      // 数学引擎失效不该拖垮整张导图；NodeRenderer 会把公式退回 `$...$` 源码显示。
+      console.warn('[outline-mindmap] loadMathJax failed', err)
+    }
+
     const host = this.contentEl
     host.empty()
     host.addClass('om-root')
