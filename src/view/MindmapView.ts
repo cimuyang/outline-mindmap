@@ -12,6 +12,7 @@
  */
 
 import {
+  FileView,
   ItemView,
   Notice,
   loadMathJax,
@@ -125,9 +126,14 @@ export class MindmapView extends ItemView {
    * setState 早于 onOpen 时先记在这儿的笔记路径，onOpen 收尾时认领。
    *
    * 「早于 onOpen」= 这个视图正在被创建：要么是「笔记 → 导图」换形态，要么是
-   * 恢复工作区。两种都当【回退】用，具体取舍见 onOpen 结尾。
+   * 恢复工作区。钉住的照办，跟随型的只当回退，取舍见 follow.ts。
    */
   private pendingPath: string | null = null
+  /**
+   * 钉在一篇笔记上（「打开为导图」换出来的那种），不跟随活动笔记；写进视图状态，重启后仍钉着。
+   * 与之相对的是侧边栏图标 / 命令面板打开的【跟随型】导图。
+   */
+  private pinned = false
   /**
    * 只给「跟随自检」命令看的留痕：最近 16 次「该不该换笔记」的判定。
    *
@@ -162,19 +168,20 @@ export class MindmapView extends ItemView {
   }
 
   /**
-   * 视图状态里记住当前这篇笔记的路径。
+   * 视图状态里记住当前这篇笔记的路径，以及是不是钉住的。
    *
-   * 两个用处：一是「笔记 ⇄ 导图」互转时把目标笔记直接交给新视图（那一刻活动笔记
+   * 路径的两个用处：一是「笔记 ⇄ 导图」互转时把目标笔记直接交给新视图（那一刻活动笔记
    * 可能已经不是它了）；二是重启 Obsidian 后导图还停在原来那篇上。
    */
   override getState(): Record<string, unknown> {
-    return { ...super.getState(), file: this.file?.path ?? null }
+    return { ...super.getState(), file: this.file?.path ?? null, pinned: this.pinned }
   }
 
   override async setState(state: unknown, result: ViewStateResult): Promise<void> {
     await super.setState(state, result)
-    const path = (state as { file?: unknown } | null)?.file
+    const { file: path, pinned } = (state as { file?: unknown; pinned?: unknown } | null) ?? {}
     if (typeof path !== 'string') return
+    this.setPinned(pinned === true)
     // setState 早于 onOpen = 视图正在被创建（换形态 / 恢复工作区）。showFile 要用
     // onOpen 里才建起来的 bridge，所以先记下来，等 onOpen 收尾时按取舍规则认领。
     if (!this.ready) {
@@ -183,16 +190,35 @@ export class MindmapView extends ItemView {
     }
     // 视图已经活着还收到 setState：仍然按同一条取舍规则来，不无条件采信。
     //
-    // 【为什么不照办】：这条路上来的路径不一定是「谁明确要求换到这一篇」——工作区被
+    // 【为什么不照办】：跟随型导图这条路上来的路径不一定是「谁明确要求换到这一篇」——工作区被
     // 保存 / 恢复、叶子被搬动、Obsidian 自己回放视图状态时，送来的都是【存档里那一篇】。
-    // 无条件采信就会把导图硬拽回上一篇，而且此后没有任何事件来纠正它。
-    // 「笔记 → 导图」换形态不受影响：转换前会先把那篇笔记打开，那一刻它就是活动笔记。
+    // 无条件采信就会把导图硬拽回上一篇，而且此后没有任何事件来纠正它。钉住的则正好该照办。
+    await this.showRestored(path)
+  }
+
+  /**
+   * 钉住 = 这个标签页是「一篇笔记换了形态」，于是也像笔记标签页一样可被导航复用：
+   * 在它里面点开别的笔记，会在这个标签页里打开，而不是另开一个；「后退」也能回到导图。
+   * 跟随型导图是工具面板，不参与导航。
+   */
+  private setPinned(pinned: boolean): void {
+    this.pinned = pinned
+    this.navigation = pinned
+  }
+
+  /**
+   * 按 follow.ts 的取舍规则处理一条存档路径。
+   *
+   * @returns 是否定下了一篇并显示了它；false 表示两个候选都没有，由调用方决定怎么兜底
+   */
+  private async showRestored(path: string): Promise<boolean> {
     const target = fileToShow(
       this.app.vault.getFileByPath(path),
       this.activeMarkdownFile(),
-      this.host.settings.lockFile,
+      this.pinned || this.host.settings.lockFile,
     )
     if (target) await this.showFile(target)
+    return target !== null
   }
 
   /**
@@ -214,7 +240,7 @@ export class MindmapView extends ItemView {
       // 先把上一篇的画面清掉：读取是异步的，不清的话这段空隙里还是上一篇的导图
       this.draw()
     }
-    const text = await this.bridge.readText(file)
+    const text = await this.bridge.loadText(file)
     if (this.file?.path !== file.path) return // 读取期间又换了一篇，见 syncActiveFile 里的同一道判断
     this.refresh(text)
   }
@@ -228,14 +254,9 @@ export class MindmapView extends ItemView {
       item
         .setTitle(t('menu.openAsNote'))
         .setIcon('file-text')
-        .onClick(() => {
-          // 就地换形态：同一个叶子从导图变回 Markdown，不另开标签页
-          void this.leaf.setViewState({
-            type: 'markdown',
-            active: true,
-            state: { file: file.path, mode: 'source' },
-          })
-        }),
+        // 就地换形态：同一个叶子从导图变回 Markdown，不另开标签页。逻辑在 main.ts，
+        // 因为它还要忘掉「以导图打开」的记忆，而记忆归插件管。
+        .onClick(() => void this.host.openAsNote(this.leaf, file)),
     )
   }
 
@@ -313,13 +334,16 @@ export class MindmapView extends ItemView {
     })
     this.resolveStyle()
 
+    // 【用事件自带的载荷判定】，不回头问 getActiveFile()：活动叶子不是笔记（比如导图自己）时，
+    // Obsidian 会把「活动笔记」回退成别的标签页里最近活动的那篇，点一下导图就可能把图切走。
     this.registerEvent(
-      this.app.workspace.on('file-open', () => void this.syncActiveFile(false, 'file-open')),
+      this.app.workspace.on('file-open', (file) => void this.syncActiveFile(false, 'file-open', file)),
     )
     this.registerEvent(
-      this.app.workspace.on('active-leaf-change', () =>
-        void this.syncActiveFile(false, 'leaf-change'),
-      ),
+      this.app.workspace.on('active-leaf-change', (leaf) => {
+        const view = leaf?.view
+        void this.syncActiveFile(false, 'leaf-change', view instanceof FileView ? view.file : null)
+      }),
     )
     // 正在显示的这篇被删了。syncActiveFile 现在会忽略瞬时的「没有活动笔记」，
     // 所以这一路必须显式收尾，否则屏幕上会留着一张已经不存在的笔记的导图。
@@ -339,17 +363,12 @@ export class MindmapView extends ItemView {
 
     this.ready = true
 
-    // 该显示哪一篇：默认活动笔记优先，存档路径只是回退。理由见 follow.ts，
-    // 一句话是「后台的导图会被 Obsidian 整个卸载，醒来时它存的那一篇早就过时了」。
+    // 该显示哪一篇：钉住的照办，否则活动笔记优先、存档路径只是回退。理由见 follow.ts，
+    // 一句话是「后台的跟随型导图会被 Obsidian 整个卸载，醒来时它存的那一篇早就过时了」。
     const pending = this.pendingPath
     this.pendingPath = null
-    const target = fileToShow(
-      pending === null ? null : this.app.vault.getFileByPath(pending),
-      this.activeMarkdownFile(),
-      this.host.settings.lockFile,
-    )
-    if (target) await this.showFile(target)
-    else await this.syncActiveFile(true, 'onOpen')
+    const shown = pending !== null && (await this.showRestored(pending))
+    if (!shown) await this.syncActiveFile(true, 'onOpen')
   }
 
   override async onClose(): Promise<void> {
@@ -416,6 +435,7 @@ export class MindmapView extends ItemView {
         this.host.settings.lockFile ? t('diag.on') : t('diag.off'),
         this.host.settings.clickToJump ? t('diag.on') : t('diag.off'),
       ),
+      t('diag.pinned', this.pinned ? t('diag.on') : t('diag.off')),
       t('diag.trail', this.trail.length),
       ...(this.trail.length === 0 ? [t('diag.noEvents')] : this.trail.map((s) => `    ${s}`)),
     ].join('\n')
@@ -565,23 +585,28 @@ export class MindmapView extends ItemView {
 
   /** 当前活动笔记，非 Markdown 一律当没有。 */
   private activeMarkdownFile(): TFile | null {
-    const file = this.app.workspace.getActiveFile()
-    return file && file.extension === 'md' ? file : null
+    return markdownOnly(this.app.workspace.getActiveFile())
   }
 
   /**
    * @param force 视图刚打开时即使没有活动笔记也要走一遍，好把空状态画出来。
    * @param source 是谁叫的。只用于自检留痕，见 `note`。
+   * @param candidate 事件自带的那篇（`file-open` 的参数、`active-leaf-change` 里叶子的文件）。
+   *   不传才去问 `getActiveFile()`——只有没有事件载荷可用的兜底路径（打开、resize、删除）这么做。
    */
-  private async syncActiveFile(force = false, source = '内部'): Promise<void> {
-    // 「固定显示一篇笔记」（M7 设置项，键名仍是 lockFile）：开着之后导图不再跟着活动笔记走。
-    // force 那次是视图刚打开时的首次同步，必须放行——否则锁着的时候新开一个导图会是空的。
-    if (this.host.settings.lockFile && this.file && !force) {
-      this.note(source, this.activeMarkdownFile(), t('trail.blockedByPin'))
+  private async syncActiveFile(
+    force = false,
+    source = '内部',
+    candidate?: TFile | null,
+  ): Promise<void> {
+    const next = candidate === undefined ? this.activeMarkdownFile() : markdownOnly(candidate)
+    // 钉住的导图（「打开为导图」换出来的）与全局「固定显示一篇笔记」（M7 设置项，键名仍是 lockFile）：
+    // 都不跟着活动笔记走。force 那次是视图刚打开时的首次同步，必须放行——否则新开一个导图会是空的。
+    if ((this.pinned || this.host.settings.lockFile) && this.file && !force) {
+      this.note(source, next, t('trail.blockedByPin'))
       return
     }
 
-    const next = this.activeMarkdownFile()
     // 【瞬时的「没有活动笔记」不算换笔记】。切标签页、点一下侧边栏的空隙里，
     // getActiveFile() 会短暂地返回 null；照单全收就是把整张图清空重画一遍——
     // 折叠态和视野一起没，用户看到的是闪一下白。
@@ -606,7 +631,7 @@ export class MindmapView extends ItemView {
     // 先把上一篇的画面清掉：读取是异步的，不清的话这段空隙里屏幕上还是上一篇的导图
     this.draw()
 
-    const text = await this.bridge.readText(next)
+    const text = await this.bridge.loadText(next)
     // 【读取期间可能又换了一篇】。A→B 快速切换时，若 A 的读取比 B 慢，
     // A 的后手回来会把 A 的文本刷进 B 的视图，画面就永久停在上一篇上（不会自愈）。
     // 身份对不上就直接丢弃——B 自己那一次同步会把正确的内容刷进来。
@@ -1308,6 +1333,11 @@ export class MindmapView extends ItemView {
     new Notice(t('notice.operationAborted', msg))
     console.error('[outline-mindmap]', err)
   }
+}
+
+/** 只认 Markdown 笔记；PDF、图片、Canvas 之类的文件视图一律当没有。 */
+function markdownOnly(file: TFile | null): TFile | null {
+  return file && file.extension === 'md' ? file : null
 }
 
 /**

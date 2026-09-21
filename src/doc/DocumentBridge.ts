@@ -187,14 +187,32 @@ export class DocumentBridge {
   }
 
   /**
-   * 读取文件当前内容。
+   * 读取文件当前内容——用于【变更事件之后】（editor-change / modify、重新解析、写失败重同步）。
    *
    * 编辑器里的内容可能尚未落盘，此时必须读编辑器——`cachedRead` 会读到旧的。
    * 叶子被延迟卸载时没有编辑器，读磁盘就是对的：Obsidian 卸载视图前会先落盘。
+   *
+   * 【刚切到一篇笔记时不要用它，用 `loadText`】（issue #5）。
    */
   async readText(file: TFile): Promise<string> {
     const editor = this.editorFor(file)
     return editor ? editor.getValue() : await this.app.vault.cachedRead(file)
+  }
+
+  /**
+   * 读取文件内容——用于【刚切到这篇笔记】的首次装入。只读磁盘，不看编辑器。
+   *
+   * 切换笔记时 Obsidian 先把 `view.file` 改成新的一篇，再异步读盘、装进编辑器；而
+   * `active-leaf-change` / `file-open` 是从文件列表那一路同步排出来的，常常抢在读盘完成之前
+   * 送到。这个窗口里按路径能找到编辑器，里面装的却还是【上一篇】的正文——照读就把上一篇
+   * 画在了新笔记的标题下；整篇装入走的是 `cm.setState`，不发 `editor-change`，此后没有任何
+   * 事件来纠正它。磁盘上的那篇不存在这个窗口。
+   *
+   * 代价：这篇若在别的标签页里有不到 2 秒的未保存改动，导图会晚 2 秒看到——Obsidian 自动保存
+   * 后 `modify` 事件走 `readText` 补上。
+   */
+  loadText(file: TFile): Promise<string> {
+    return this.app.vault.cachedRead(file)
   }
 
   // ── 定位跳转与高亮（M4）──────────────────────────────────────

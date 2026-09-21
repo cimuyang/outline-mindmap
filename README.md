@@ -14,7 +14,7 @@ copy of the state.
 
 ![](https://github.com/cimuyang/outline-mindmap/blob/main/demo1.png)
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.1**
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.2**
 - The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
 ## Features
@@ -22,7 +22,7 @@ copy of the state.
 1. **Plain Markdown in, clean Markdown out**: Headings and lists become a mindmap on their own — no YAML, no injected properties, no hidden comments. Every setting lives in the plugin's own `data.json`. Your Markdown stays Markdown, and stays usable anywhere.
 2. **Two-way live sync**: Edit the note and the map follows; drag a node and the note updates. Write-back replaces only that line — every byte outside it is untouched — and one action is one undo, so the two sides never drift apart.
 3. **Click to locate**: Click a node and the visible note scrolls to the matching line and highlights it in both Editing and Reading view; double-click to rename. After you add, rename or drag a node, the note stays right where you were working — outline and prose, no seam in between.
-4. **Note ⇄ map, in place**: *打开为导图* (Open as mindmap) turns the current tab into a map; *打开为笔记* (Open as note) turns it back. Same tab, no extra tabs piling up.
+4. **Note ⇄ map, in place**: *打开为导图* (Open as mindmap) turns the current tab into a map; *打开为笔记* (Open as note) turns it back. Same tab, no extra tabs piling up. A converted note is remembered and opens as a map next time (can be turned off in Settings).
 5. **Drag to rearrange**: Drop on a node's top or bottom edge to insert before or after, drop in the middle to make it a child, drop on empty space to start a new root. Cross the 6th level and headings and list items convert automatically — with the body text underneath moving along.
 6. **Keyboard-first**: `Enter` for a sibling, `Tab` for a child, arrow keys to move around, `Delete` to remove a whole subtree, `Esc` to abandon anything without writing a byte. Your hands never leave the keys.
 7. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides; and each level can get its own colour (**colour by level** — text and border, palette taken from the theme so light and dark both look right). Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
@@ -76,6 +76,13 @@ note. The two are exact inverses; switching back and forth never opens an extra 
 **After 打开为导图 you are in pure-map mode**: that tab no longer holds an editor, so clicking a
 node only selects it — the plugin will not dig the note out for you. To read the note and edit
 the map side by side, open the map in the sidebar or split the pane.
+
+Two kinds of map: the ribbon icon and the command palette open a **following** map, which draws
+whatever note is active; *Open as mindmap* produces a **pinned** map — it is that note's tab in a
+different shape, belongs to that note alone, stays put when you open other notes, and is still
+pinned after an Obsidian restart. Like a note tab, opening another note from inside it reuses the
+tab. Switching form (note ⇄ map) does not enter tab history: *Back* and *Forward* move between
+notes, never back to the note form of the same note.
 
 The main-area and sidebar forms can be open at the same time without interfering. The map
 follows the active note by default (including when you come back from a background tab or a
@@ -153,6 +160,7 @@ Expand all · Collapse all · Style settings.
 | 优雅动画 (Smooth animation) | **Off** | Smooth transitions for node movement, layout switching and the viewport follow on expand/collapse. Noticeably slower with many nodes |
 | 严格换行 (Strict blank lines) | On | When adding / moving nodes, pad adjacent headings to 3 blank lines apart |
 | 把列表项显示为节点 (Show list items as nodes) | On | Turn it off and the map shows headings only: list items go back to being body text under their heading. The note itself is not touched; switching back restores every list node. While it is off, adding or dragging past level 6 is blocked with a notice — a level-7 heading has no visible syntax to write |
+| 记住每篇笔记的打开方式 (Remember how each note opens) | On | A note converted with **Open as mindmap** opens as a mindmap next time, in whichever tab it appears; **Open as note** restores it, in the Reading / Editing mode it had when converted. The record lives only in the plugin's `data.json` and is migrated or cleaned up when the note is renamed, moved or deleted. Switching form does not enter tab history, so *Back* / *Forward* move between notes only |
 
 Styles — shape, colour scheme, **colour by level**, font size, horizontal and vertical gaps,
 branch style (**straight / diagonal / elbow**) — come in two levels, **global** and **per-note**: a note with
@@ -200,7 +208,7 @@ layout, first render (rebuilding all DOM) and redraw actually took.
 ```bash
 npm run dev        # watch build
 npm run typecheck  # strict type-check
-npm test           # 490 unit tests
+npm test           # 524 unit tests
 ```
 
 The directory layering is a hard constraint: `core/` (parsing, serialisation, structural
@@ -220,14 +228,28 @@ If the vault already has this plugin under a differently-named folder, it reuses
 rather than creating a second copy with the same plugin id.
 
 Releases are cut by tag: bump the version in `manifest.json`, `package.json` and `versions.json`,
-then `git tag 1.3.1 && git push origin 1.3.1`. The workflow runs the tests, builds, checks the
+then `git tag 1.3.2 && git push origin 1.3.2`. The workflow runs the tests, builds, checks the
 tag against the manifest, attests provenance and uploads exactly those three files.
 **The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
 
-The full specification (data mapping, serialisation rules, the list of traps) lives in
-[操作手册.md](操作手册.md), in Chinese.
-
 ## What's new
+
+### v1.3.2
+
+- **Remember how each note opens** (new setting, on by default): a note converted with
+  *Open as mindmap* opens as a mindmap next time; *Open as note* restores it, in the Reading /
+  Editing mode it had when converted. The record lives only in the plugin's own `data.json` and
+  never touches the note; it follows renames and moves and is cleaned up on delete.
+- **Two kinds of map, told apart**: the ribbon icon and the command palette open a following map
+  that tracks the active note; *Open as mindmap* produces a pinned map that belongs to one note,
+  stays put when other notes are opened, and is still pinned after a restart.
+- **Fixed: the map kept showing the previous note**. When switching notes the map now reads the
+  file from disk instead of an editor that has not loaded the new note yet, and follow decisions
+  use the file and tab carried by the event, so clicking the map itself can no longer switch it away.
+- From the file explorer, *Open as mindmap* converts the tab that already shows the note instead
+  of opening a second one.
+- Switching form (note ⇄ map) does not enter tab history; *Back* and *Forward* move between notes only.
+- 9 new unit tests, 524 in total.
 
 ### v1.3.1
 

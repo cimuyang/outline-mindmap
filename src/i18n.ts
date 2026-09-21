@@ -39,6 +39,7 @@ const zh = {
   'diag.treeEmpty': '（树是空的）',
   'diag.none': '（无）',
   'diag.switches': '· 固定显示一篇笔记：{0}／单击即跳转：{1}',
+  'diag.pinned': '· 本视图钉在一篇上（「打开为导图」换出来的）：{0}',
   'diag.on': '开',
   'diag.off': '关',
   'diag.trail': '· 同步留痕（最近 {0} 次，早 → 晚）：',
@@ -113,6 +114,10 @@ const zh = {
   'settings.listNodesDesc':
     '开启后，标题下的列表项作为更深层的导图节点（第 7 层起）。' +
     '关闭后列表只算正文，导图仅由标题构成。',
+  'settings.rememberOpenAs': '记住每篇笔记的打开方式',
+  'settings.rememberOpenAsDesc':
+    '用「打开为导图」转换过的笔记，下次打开时直接显示为导图；「打开为笔记」即恢复。' +
+    '记录只存在插件自己的 data.json 里，笔记本身一个字节都不变。',
 } as const
 
 export type MsgKey = keyof typeof zh
@@ -147,6 +152,7 @@ const en: Record<MsgKey, string> = {
   'diag.treeEmpty': ' (tree is empty)',
   'diag.none': '(none)',
   'diag.switches': '· Pin to one note: {0} / Click to jump: {1}',
+  'diag.pinned': '· This view is pinned to its note (converted with "Open as mindmap"): {0}',
   'diag.on': 'on',
   'diag.off': 'off',
   'diag.trail': '· Sync trail (last {0}, early → late):',
@@ -222,6 +228,10 @@ const en: Record<MsgKey, string> = {
   'settings.listNodesDesc':
     'When on, list items under headings become deeper mindmap nodes (level 7 and beyond). ' +
     'When off, lists count as body text and the map is built from headings only.',
+  'settings.rememberOpenAs': 'Remember how each note opens',
+  'settings.rememberOpenAsDesc':
+    'A note converted with "Open as mindmap" opens as a mindmap next time; "Open as note" restores it. ' +
+    "The record lives only in the plugin's data.json — the note itself is never touched.",
 }
 
 /** 当前语言该用的那张表。zh-* 一律归中文，其余归英文。 */

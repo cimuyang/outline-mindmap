@@ -280,7 +280,8 @@ export class StyleStore {
 }
 
 /** key 在这次改名中的新名字；不受影响时返回 null。 */
-function migrated(key: string, oldPath: string, newPath: string): string | null {
+/** 一个按路径存的 key 在 `oldPath → newPath` 改名后该变成什么；不受影响返回 null。OpenAsStore 共用。 */
+export function migrated(key: string, oldPath: string, newPath: string): string | null {
   if (key === oldPath) return newPath
   if (key.startsWith(`${oldPath}/`)) return newPath + key.slice(oldPath.length)
   return null

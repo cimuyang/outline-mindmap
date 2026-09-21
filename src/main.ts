@@ -1,7 +1,8 @@
-import { Notice, Plugin, TFile, type WorkspaceLeaf } from 'obsidian'
+import { MarkdownView, Notice, Plugin, TFile, type ViewState, type WorkspaceLeaf } from 'obsidian'
 import { highlightExtension } from './doc/highlight'
 import { annotatePreviewSection } from './doc/preview'
 import { t } from './i18n'
+import { OpenAsStore, type NoteMode } from './settings/OpenAsStore'
 import {
   MindmapSettingTab,
   normalizeSettings,
@@ -15,7 +16,9 @@ import { MindmapView, VIEW_TYPE_MINDMAP } from './view/MindmapView'
 export default class OutlineMindmapPlugin extends Plugin implements MindmapHost {
   settings: MindmapSettings = normalizeSettings(null)
   /** 样式两级存储。它就地读写 `settings.styles`，落盘复用 saveSettings（红线 1：只进 data.json）。 */
-  styles: StyleStore = this.makeStyleStore()
+  styles!: StyleStore
+  /** 「以导图打开」的记忆。同样就地读写 `settings.openAs`，只进 data.json。 */
+  openAs!: OpenAsStore
 
   override async onload(): Promise<void> {
     await this.loadSettings()
@@ -36,11 +39,13 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     this.registerEvent(
       this.app.vault.on('rename', (file, oldPath) => {
         this.styles.rename(oldPath, file.path)
+        this.openAs.rename(oldPath, file.path)
       }),
     )
     this.registerEvent(
       this.app.vault.on('delete', (file) => {
         this.styles.remove(file.path)
+        this.openAs.remove(file.path)
       }),
     )
 
@@ -49,15 +54,38 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     this.registerEvent(
       this.app.workspace.on('file-menu', (menu, file, _source, leaf) => {
         if (!(file instanceof TFile) || file.extension !== 'md') return
+        // 从文件列表右键进来时没有叶子：这篇若已经在某个标签页里开着，就地转换那一个，
+        // 与三个点菜单的行为一致，也不会出现「一个笔记 A、一个导图 A」两个标签页。
+        const target = leaf ?? this.leafShowing(file)
+        // 记下此刻的阅读 / 编辑模式，「打开为笔记」时还原
+        const view = target?.view
+        const noteMode: NoteMode = view instanceof MarkdownView ? view.getMode() : 'source'
         menu.addItem((item) =>
           item
             .setTitle(t('menu.openAsMindmap'))
             .setIcon('network')
             .onClick(() => {
-              void this.openAsMindmap(file, leaf)
+              if (this.settings.rememberOpenAs) this.openAs.remember(file.path, noteMode)
+              void this.openAsMindmap(file, target)
             }),
         )
       }),
+    )
+
+    // 回放记忆：一篇记过「以导图打开」的笔记在某个标签页里以 Markdown 形态露出来了，就换成导图。
+    // 两个触发点，同一个 `replay`：
+    // - active-leaf-change 带着叶子来，是主路径；
+    // - layout-change 是兜底。Obsidian 每次叶子装完新文件都会在 setViewState 收尾后发它，
+    //   正是「现在可以安全换形态」的信号（主路径的那次事件可能来得太早，见 replay）。
+    // 【形态切换不进标签页历史】（见 switchForm），所以「后退」不会退回同一篇的笔记形态，
+    // 这里不需要任何「是不是在后退」的判断——回放是幂等的：是记过的笔记就换，换过了就没事可做。
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', (leaf) => void this.replay(leaf)),
+    )
+    this.registerEvent(
+      this.app.workspace.on('layout-change', () =>
+        void this.replay(this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf ?? null),
+      ),
     )
 
     // 侧边栏图标固定为导图图标——与 MindmapView.getIcon() 是同一个（M7）
@@ -125,14 +153,12 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
 
   async loadSettings(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData())
-    // settings 换了一份对象，StyleStore 持有的是旧的那份，必须跟着换
-    this.styles = this.makeStyleStore()
-  }
-
-  private makeStyleStore(): StyleStore {
-    return new StyleStore(this.settings.styles, () => {
+    // settings 换了一份对象，两个 store 持有的是旧的那份，必须跟着换
+    const persist = (): void => {
       this.saveSettings().catch((err: unknown) => console.error('[outline-mindmap]', err))
-    })
+    }
+    this.styles = new StyleStore(this.settings.styles, persist)
+    this.openAs = new OpenAsStore(this.settings.openAs, persist)
   }
 
   async saveSettings(): Promise<void> {
@@ -145,27 +171,73 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
   }
 
   /**
+   * 回放「以导图打开」的记忆：这个叶子里若正以 Markdown 形态露着一篇记过的笔记，就换成导图。
+   *
+   * 点文件列表打开笔记时，Obsidian 先把叶子设为活动（排一个 0ms 的 active-leaf-change），
+   * 再进 `setViewState` 异步读盘装内容；那次事件常常抢在读盘完成之前送到，此时叶子的
+   * `setViewState` 还在进行中，而它对嵌套调用的处理是【静默忽略】——不报错、不排队。
+   * 这里不必为此做任何事：回放是幂等的，读盘完成后的下一次事件（或 layout-change 兜底）
+   * 会再来一遍；已经换成导图的叶子进不了下面的 instanceof 判断。
+   */
+  private async replay(leaf: WorkspaceLeaf | null): Promise<void> {
+    const view = leaf?.view
+    if (!leaf || !this.settings.rememberOpenAs || !(view instanceof MarkdownView) || !view.file) return
+    if (this.openAs.isMindmap(view.file.path)) await this.openAsMindmap(view.file, leaf)
+  }
+
+  /** 已经以 Markdown 形态开着这篇笔记的叶子（延迟加载的也算，按视图状态里的路径认）。 */
+  private leafShowing(file: TFile): WorkspaceLeaf | undefined {
+    return this.app.workspace
+      .getLeavesOfType('markdown')
+      .find((leaf) => leaf.getViewState().state?.['file'] === file.path)
+  }
+
+  /**
    * 把一篇笔记显示为导图。
    *
    * @param leaf 笔记所在的叶子。有就【就地换形态】——同一个标签页从 Markdown 变成导图，
-   *   和「打开为笔记」正好互为反向。从文件列表右键点进来时没有叶子，那就新开一个标签页。
+   *   和「打开为笔记」正好互为反向。没有（文件列表右键、且这篇没开着）就新开一个标签页。
    */
   private async openAsMindmap(file: TFile, leaf?: WorkspaceLeaf): Promise<void> {
     const target = leaf ?? this.app.workspace.getLeaf('tab')
-    // 【先真的把这篇打开、并让它成为活动笔记，再换形态】。
-    //
-    // 从文件列表右键点进来时这篇还不是活动笔记；从标签页右键点进来时那个叶子也未必是活动的。
-    // 换形态之后，新导图是按【活动笔记】来定自己显示哪一篇的（见 MindmapView.onOpen 结尾），
-    // 问到上一篇就会当着用户的面跳到别的笔记上。
-    // 无条件 openFile 一次，两条路径就都不必跟事件抢时序——叶子里已经是这篇时它也很便宜。
-    await target.openFile(file)
-    await target.setViewState({
+    await this.switchForm(target, {
       type: VIEW_TYPE_MINDMAP,
       active: true,
-      // 指名这一篇：换形态之后活动笔记未必还是它，让导图跟着活动笔记猜是会猜错的
-      state: { file: file.path },
+      // 【钉在这一篇上】：它是这篇笔记的标签页换了形态，不跟随活动笔记，也不让导图去猜——
+      // 换形态之后这个叶子里已经是导图而不是笔记，Obsidian 问「活动笔记」时会回退到
+      // 【别的】标签页里最近活动的那篇，猜出来的永远是上一篇（issue #5）。
+      state: { file: file.path, pinned: true },
     })
     await this.app.workspace.revealLeaf(target)
+  }
+
+  /**
+   * 导图这一侧的「打开为笔记」（MindmapHost）：同一个叶子就地变回 Markdown。
+   *
+   * 【先忘、再换】：换回去的那一刻会触发 active-leaf-change，记忆若还在，回放那一路会立刻把它
+   * 再换成导图，来回死循环。模式用转换时记下的那一个，阅读模式的用户不会被切到编辑模式。
+   */
+  async openAsNote(leaf: WorkspaceLeaf, file: TFile): Promise<void> {
+    const mode = this.openAs.noteModeOf(file.path)
+    this.openAs.forget(file.path)
+    await this.switchForm(leaf, {
+      type: 'markdown',
+      active: true,
+      state: { file: file.path, mode },
+    })
+  }
+
+  /**
+   * 换形态（笔记 ⇄ 导图），【不进标签页历史】。
+   *
+   * 它是同一篇笔记换了个样子，不是「去了另一个地方」。若记进历史，「后退」会从导图退回
+   * 同一篇的笔记形态，记忆随即又把它换回导图，后退就此卡死；不记，后退 / 前进就只在笔记之间
+   * 移动，前进历史也不会被这一步清掉。`popstate` 正是 Obsidian 自己的前进 / 后退调用
+   * setViewState 时用来表示「这一步别记」的标记；它不在公开类型里，万一将来失效，
+   * 退化行为只是「后退到笔记形态后被换回导图」，不涉及任何数据。
+   */
+  private switchForm(leaf: WorkspaceLeaf, state: ViewState): Promise<void> {
+    return leaf.setViewState({ ...state, popstate: true } as ViewState)
   }
 
   /**

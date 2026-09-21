@@ -213,8 +213,10 @@ describe('fileToShow（拿到存档路径时显示哪一篇）', () => {
     expect(fileToShow(RESTORED, null, false)).toBe(RESTORED)
   })
 
-  it('固定：存档路径压过活动笔记', () => {
-    // 「固定显示一篇笔记」的用途就是把导图钉住，钉住的那篇正是存档里的那篇
+  it('钉住：存档路径压过活动笔记', () => {
+    // 全局「固定显示一篇笔记」与「打开为导图」换出来的钉住视图走同一条：
+    // 换形态之后叶子里已经是导图，Obsidian 会把「活动笔记」回退成别的标签页里最近的那篇，
+    // 存档里的那篇才是用户要的（issue #5）
     expect(fileToShow(RESTORED, ACTIVE, true)).toBe(RESTORED)
   })
 
@@ -227,4 +229,5 @@ describe('fileToShow（拿到存档路径时显示哪一篇）', () => {
     expect(fileToShow(null, null, false)).toBeNull()
     expect(fileToShow(null, null, true)).toBeNull()
   })
+
 })

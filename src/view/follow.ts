@@ -19,13 +19,15 @@
  *
  * 「固定显示一篇笔记」开着时正好反过来：那个开关的用途就是把导图钉在一篇上，存档说了算。
  *
- * 「笔记 → 导图」换形态不受这条规则影响——转换前会先把那篇笔记打开，
- * 换形态的那一刻它就是活动笔记，两个候选是同一个。
+ * 「打开为导图」换出来的是【钉住的】导图：它是那篇笔记的标签页换了个形态，像笔记标签页一样
+ * 只属于这一篇，存档说了算，不看活动笔记。也不能看——换形态的那一刻叶子里已经是导图而不是
+ * 笔记，Obsidian（1.13 实测）会把 `getActiveFile()` 回退成【别的】标签页里最近活动的那篇，
+ * 问到的永远是上一篇（issue #5）。钉住与否写在视图状态里，重启后仍然钉着。
  *
  * @param restored 视图状态里存档的那一篇，没有就是 null
  * @param active 当前活动笔记，没有就是 null
- * @param lockFile 「固定显示一篇笔记」开关
+ * @param pinned 这个视图是否钉在存档的那一篇上：「打开为导图」换出来的、或全局开着「固定显示一篇笔记」
  */
-export function fileToShow<T>(restored: T | null, active: T | null, lockFile: boolean): T | null {
-  return lockFile ? (restored ?? active) : (active ?? restored)
+export function fileToShow<T>(restored: T | null, active: T | null, pinned: boolean): T | null {
+  return pinned ? (restored ?? active) : (active ?? restored)
 }

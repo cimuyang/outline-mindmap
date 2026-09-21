@@ -4,8 +4,9 @@
  * 【所有配置存在插件自身的 data.json，绝不写进笔记】（第 1 章红线）。
  */
 
-import { PluginSettingTab, Setting, type App, type Plugin } from 'obsidian'
+import { PluginSettingTab, Setting, type App, type Plugin, type TFile, type WorkspaceLeaf } from 'obsidian'
 import { t, type MsgKey } from '../i18n'
+import { normalizeOpenAsData, type OpenAsData } from './OpenAsStore'
 import { defaultStyleData, normalizeStyleData, type StyleData, type StyleStore } from './StyleStore'
 
 export interface MindmapSettings {
@@ -19,8 +20,12 @@ export interface MindmapSettings {
   strictLineBreak: boolean
   /** 把列表项显示为导图节点。关掉后导图只画标题，列表行只是最近标题的正文。 */
   listNodes: boolean
+  /** 记住每篇笔记的打开方式：用「打开为导图」转换过的笔记，下次打开直接是导图（v1.3.2）。 */
+  rememberOpenAs: boolean
   /** 全局样式 + 单篇样式。运行时由 StyleStore 就地读写这一份对象。 */
   styles: StyleData
+  /** 要以导图打开的笔记。运行时由 OpenAsStore 就地读写这一份对象。 */
+  openAs: OpenAsData
 }
 
 export const DEFAULT_SETTINGS: MindmapSettings = {
@@ -29,7 +34,9 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
   gracefulAnimation: false,
   strictLineBreak: true,
   listNodes: true,
+  rememberOpenAs: true,
   styles: defaultStyleData(),
+  openAs: {},
 }
 
 /** data.json 里读到的东西 → 一份合法设置。缺字段、类型不对、超范围的一律收拢。 */
@@ -43,7 +50,9 @@ export function normalizeSettings(raw: unknown): MindmapSettings {
     gracefulAnimation: bool('gracefulAnimation', DEFAULT_SETTINGS.gracefulAnimation),
     strictLineBreak: bool('strictLineBreak', DEFAULT_SETTINGS.strictLineBreak),
     listNodes: bool('listNodes', DEFAULT_SETTINGS.listNodes),
+    rememberOpenAs: bool('rememberOpenAs', DEFAULT_SETTINGS.rememberOpenAs),
     styles: normalizeStyleData(o['styles']),
+    openAs: normalizeOpenAsData(o['openAs']),
   }
 }
 
@@ -58,6 +67,8 @@ export interface MindmapHost {
   saveSettings(): Promise<void>
   /** 解析类设置变了（如「把列表项显示为节点」）：让所有导图按新规则重新解析当前笔记。 */
   reloadMindmaps(): void
+  /** 导图这一侧的「打开为笔记」：同一个叶子就地变回 Markdown，并忘掉「以导图打开」的记忆。 */
+  openAsNote(leaf: WorkspaceLeaf, file: TFile): Promise<void>
 }
 
 export class MindmapSettingTab extends PluginSettingTab {
@@ -81,6 +92,7 @@ export class MindmapSettingTab extends PluginSettingTab {
     this.toggle('settings.listNodes', 'settings.listNodesDesc', 'listNodes', () =>
       this.host.reloadMindmaps(),
     )
+    this.toggle('settings.rememberOpenAs', 'settings.rememberOpenAsDesc', 'rememberOpenAs')
   }
 
   /** 几个开关长得一模一样，写成一个方法免得同一段代码抄五遍。 */
