@@ -235,8 +235,8 @@ Before publishing, run `npm test` and `npm run build`. Keep `manifest.json`,
 
 ### v1.3.3
 
-- **Undo/redo in map-only mode**: use shortcuts or the pane menu without opening the note. Maps of the same file share session history.
-- **Search navigation and highlighting**: opening an Obsidian search result reveals, centers and highlights its matching node. Body text and hidden lists show a highlighted excerpt, with a shortcut to the original note.
+- **Undo/redo in map-only mode**: In 'Open as Mind Map' mode, use shortcuts or the pane menu without opening the note. Maps of the same file share session history.
+- **Search navigation and highlighting**: In 'Open as Mind Map' mode, opening an Obsidian search result reveals, centers and highlights its matching node. Body text and hidden lists show a highlighted excerpt, with a shortcut to the original note.
 - **Refined level colors**: six distinct, muted colors for light and dark themes, with softer borders.
 - **Synchronized animation**: nodes and edges move together; large maps and reduced-motion preferences disable animation.
 - **New defaults**: elbow branches, blue palette, animation on, strict line breaks off, and list nodes off. Existing explicit settings and per-note styles are preserved.
