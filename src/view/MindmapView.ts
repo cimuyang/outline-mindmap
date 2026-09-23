@@ -50,6 +50,7 @@ import {
 import type { NodeSide } from '../layout'
 import type { Box, LayoutDirection, LayoutOptions, LayoutResult } from '../layout/types'
 import { DocumentBridge, type DocumentChange } from '../doc/DocumentBridge'
+import type { HistoryDirection } from '../doc/FileHistory'
 import type { MindmapHost } from '../settings/SettingsTab'
 import { StyleModal } from '../settings/StyleModal'
 import { DEFAULT_STYLE, type MindmapStyle } from '../settings/StyleStore'
@@ -61,6 +62,8 @@ import { InlineEditor, type CommitNext } from './Editor'
 import { fileToShow } from './follow'
 import { NodeRenderer } from './NodeRenderer'
 import { Toolbar } from './Toolbar'
+import { LayoutMotion, MOTION_NODE_LIMIT } from './LayoutMotion'
+import { searchState, searchTargets, type SearchState } from './search'
 import { clearMeasureCache, measureNode, readFont, toggleSize, type FontSpec } from './measure'
 
 export const VIEW_TYPE_MINDMAP = 'outline-mindmap'
@@ -118,6 +121,12 @@ export class MindmapView extends ItemView {
   private pendingText: string | null = null
   /** 写盘失败后正在重新同步，别把同一个错误弹十遍。 */
   private resyncing = false
+  private historyBusy = 0
+  private search: { state: SearchState; path: string | null; pending: boolean } | null = null
+  private searchBar!: HTMLElement
+  private searchFocusId: string | null = null
+  private motion!: LayoutMotion
+  private reducedMotion: MediaQueryList | null = null
   /** 换一篇笔记后的第一次绘制要自动适应画布，之后不再动用户的视野。 */
   private needsFit = true
   /** onOpen 是否已经把各个部件建起来了。setState 可能比它先到。 */
@@ -165,6 +174,97 @@ export class MindmapView extends ItemView {
 
   override getIcon(): string {
     return 'network'
+  }
+
+  override getEphemeralState(): Record<string, unknown> {
+    return this.search ? { ...this.search.state } : {}
+  }
+
+  override setEphemeralState(value: unknown): void {
+    const state = searchState(value)
+    if (!state) return
+    this.searchFocusId = null
+    this.search = { state, path: this.pendingPath ?? this.file?.path ?? null, pending: true }
+    if (this.ready && this.tree) this.applySearch()
+  }
+
+  private clearSearch(): void {
+    this.search = null
+    this.searchFocusId = null
+    this.nodeRenderer?.setSearch(new Map())
+    this.searchBar?.empty()
+    this.searchBar?.addClass('is-hidden')
+  }
+
+  private applySearch(): void {
+    const request = this.search
+    const tree = this.tree
+    if (!request || !tree || !this.file || !this.ready) return
+    if (request.path !== null && request.path !== this.file.path) { this.clearSearch(); this.draw(); return }
+    const targets = searchTargets(tree, request.state)
+    if (!targets) {
+      this.clearSearch()
+      this.draw()
+      new Notice(t('notice.searchStale'))
+      return
+    }
+    const highlights = new Map<string, string[]>()
+    for (const target of targets) {
+      if (!target.node) continue
+      const terms = highlights.get(target.node.id) ?? []
+      if (!target.body && target.text) terms.push(target.text)
+      highlights.set(target.node.id, terms)
+    }
+    this.nodeRenderer.setSearch(highlights)
+    const first = targets.find(target => target.node)
+    if (request.pending && first?.node) {
+      for (const target of targets) {
+        for (let parent = target.node?.parent; parent; parent = parent.parent) parent.collapsed = false
+      }
+      this.setSelection(first.node.id)
+      this.searchFocusId = first.node.id
+    }
+    this.searchBar.empty()
+    this.searchBar.removeClass('is-hidden')
+    this.searchBar.createSpan({ text: t(targets.some(x => x.body) ? 'search.body' : 'search.matches', targets.length) })
+    const open = this.searchBar.createEl('button', { text: t('search.openNote') })
+    open.addEventListener('click', () => {
+      const file = this.file
+      if (file) void this.host.openSearchResult(this.leaf, file, request.state).catch(err => this.report(err))
+    })
+    const close = this.searchBar.createEl('button', { text: t('search.clear') })
+    close.addEventListener('click', () => { this.clearSearch(); this.draw(); this.canvas.focus() })
+    // Body text is absent from the outline: show the exact source hit without
+    // creating editable pseudo-nodes or changing the document/layout geometry.
+    const bodyIndex = targets.findIndex(target => target.body)
+    if (bodyIndex >= 0) {
+      const { content, matches } = request.state.match
+      const [from, to] = matches[bodyIndex]!
+      const start = Math.max(content.lastIndexOf('\n', Math.max(0, from - 1)) + 1, from - 48)
+      const lineEnd = content.indexOf('\n', to)
+      const end = Math.min(lineEnd < 0 ? content.length : lineEnd, to + 96)
+      const excerpt = this.searchBar.createDiv({ cls: 'om-search-excerpt' })
+      excerpt.appendText((start > 0 ? '…' : '') + content.slice(start, from))
+      excerpt.createEl('mark', { cls: 'om-search-match', text: content.slice(from, Math.min(to, from + 160)) + (to - from > 160 ? '…' : '') })
+      excerpt.appendText(content.slice(to, end) + (end < content.length ? '…' : ''))
+    }
+    this.draw()
+    this.focusSearch()
+    request.pending = false
+  }
+
+  private focusSearch(): void {
+    if (!this.searchFocusId) return
+    const box = this.boxes.get(this.searchFocusId)
+    if (box && this.canvas.centerOn(box, true, 0.85)) {
+      this.searchFocusId = null
+      this.needsFit = false
+    }
+  }
+
+  private resizeCanvas(): void {
+    if (this.needsFit && this.canvas.fit(this.bounds)) this.needsFit = false
+    this.focusSearch()
   }
 
   /**
@@ -250,6 +350,12 @@ export class MindmapView extends ItemView {
     super.onPaneMenu(menu, source)
     const file = this.file
     if (!file) return
+    menu.addItem(item => item.setTitle(t('menu.undo')).setIcon('undo-2')
+      .setDisabled(!!this.historyBusy || !!this.session)
+      .onClick(() => void this.stepHistory('undo')))
+    menu.addItem(item => item.setTitle(t('menu.redo')).setIcon('redo-2')
+      .setDisabled(!!this.historyBusy || !!this.session)
+      .onClick(() => void this.stepHistory('redo')))
     menu.addItem((item) =>
       item
         .setTitle(t('menu.openAsNote'))
@@ -271,6 +377,16 @@ export class MindmapView extends ItemView {
     }
 
     const host = this.contentEl
+    const win = host.ownerDocument.defaultView ?? window
+    this.motion = new LayoutMotion({
+      now: () => win.performance.now(),
+      request: callback => win.requestAnimationFrame(callback),
+      cancel: id => win.cancelAnimationFrame(id),
+    })
+    this.reducedMotion = win.matchMedia('(prefers-reduced-motion: reduce)')
+    const onMotionChange = (): void => { if (this.ready) this.draw() }
+    this.reducedMotion.addEventListener('change', onMotionChange)
+    this.register(() => this.reducedMotion?.removeEventListener('change', onMotionChange))
     host.empty()
     host.addClass('om-root')
 
@@ -279,10 +395,9 @@ export class MindmapView extends ItemView {
     // 【容器 resize 只重算视口，不自动重排】（M7 交付物）：Canvas 自己缓存新的宽高，
     // 这里除了「还没适应过画布」的那一次之外什么都不做——侧边栏拖宽拖窄是连续事件，
     // 每一帧都重新布局会卡，而且会把用户调好的缩放比例冲掉。
-    this.canvas = new Canvas(host, () => {
-      if (this.needsFit && this.canvas.fit(this.bounds)) this.needsFit = false
-    })
+    this.canvas = new Canvas(host, () => this.resizeCanvas())
     this.empty = host.createDiv({ cls: 'om-empty', text: t('view.empty') })
+    this.searchBar = host.createDiv({ cls: 'om-search-bar is-hidden' })
 
     // 工具栏（M7）。浮在画布上层，两种形态（主页面 / 侧边栏）共用同一套按钮。
     this.toolbar = new Toolbar(host, {
@@ -313,7 +428,7 @@ export class MindmapView extends ItemView {
       tree: () => this.tree,
       boxes: () => this.boxes,
       order: () => this.order,
-      enabled: () => !this.editor.active && this.session === null && this.tree !== null,
+      enabled: () => !this.editor.active && this.session === null && this.tree !== null && !this.historyBusy,
       onDrop: this.onDrop,
       onVisual: (dragging, into) => this.nodeRenderer.setDragVisual(dragging, into),
     })
@@ -322,8 +437,9 @@ export class MindmapView extends ItemView {
     this.registerDomEvent(nodeLayer, 'click', this.onLayerClick)
     this.registerDomEvent(this.canvas.viewport, 'dblclick', this.onDoubleClick)
     this.registerDomEvent(this.canvas.viewport, 'keydown', this.onKeyDown)
+    this.registerDomEvent(this.canvas.viewport, 'pointerdown', () => this.motion.finish(), true)
 
-    this.bridge = new DocumentBridge(this.app, this.onDocumentChange)
+    this.bridge = new DocumentBridge(this.app, this.onDocumentChange, this.host.fileHistory)
     // 交给 this（ItemView 也是 Component）托管，视图关闭时监听自动解绑
     this.bridge.start(this)
 
@@ -372,6 +488,8 @@ export class MindmapView extends ItemView {
   }
 
   override async onClose(): Promise<void> {
+    this.motion?.reset()
+    this.clearSearch()
     // 关视图时未提交的编辑一律作废：这时候再往文件里写字，用户根本看不见
     this.cancelSession()
     this.unsubscribeStyle?.()
@@ -570,6 +688,8 @@ export class MindmapView extends ItemView {
    * 只改了一边，就会出现「跟着活动笔记切换是干净的、手动指名切换却残留上一篇」这种鬼故事。
    */
   private adoptFile(next: TFile | null): void {
+    this.motion?.reset()
+    if (this.search?.path !== next?.path) this.clearSearch()
     this.cancelSession()
     this.file = next
     this.tree = null // 切换笔记即重置折叠态（第 4.5 节的 v1 决策）
@@ -656,8 +776,13 @@ export class MindmapView extends ItemView {
     // 被别处删掉的节点不能继续留在选中集合里，否则删除/拖拽会拿着不存在的 id 去生成 plan
     const byId = this.tree.byId
     for (const id of [...this.selection]) if (!byId.has(id)) this.selection.delete(id)
-    if (this.focusId !== null && !byId.has(this.focusId)) this.focusId = null
-    this.draw()
+    if (this.focusId !== null && !byId.has(this.focusId)) {
+      this.focusId = null
+      if (this.search) this.search.pending = true
+    }
+    if (this.search && !this.search.pending && !searchTargets(this.tree, this.search.state)) this.clearSearch()
+    if (this.search) this.applySearch()
+    else this.draw()
   }
 
   /** 编辑结束后补上编辑期间被挡下的外部变更。 */
@@ -686,13 +811,9 @@ export class MindmapView extends ItemView {
     const tree = this.tree
     const hasContent = tree !== null && tree.root.children.length > 0
     this.empty.toggleClass('is-visible', !hasContent)
-    // 优雅动画默认关（红线 4：节点一多，过渡就是掉帧的来源）。开关在设置页，
-    // 改完不发事件，所以每次绘制顺手对一下——一个元素上的 classList 操作，可以忽略不计。
-    // 节点自己的过渡看 class，视野移动的过渡看 Canvas 里的这个标志（M10）。
-    const animated = this.host.settings.gracefulAnimation
-    this.contentEl.toggleClass('om-animated', animated)
-    this.canvas.setAnimated(animated)
+    const motionAllowed = this.host.settings.gracefulAnimation && !this.reducedMotion?.matches
     if (!tree || !hasContent) {
+      this.motion.reset()
       this.nodeRenderer.render([], new Map(), this.selection, rootSide(this.direction))
       this.connectors.render([], new Map(), this.style.branch, 0, 0)
       this.boxes = new Map()
@@ -703,18 +824,18 @@ export class MindmapView extends ItemView {
 
     const boxes = layout(tree, this.layoutOptions())
     const nodes = visibleNodes(tree)
-
-    this.nodeRenderer.render(nodes, boxes, this.selection, rootSide(this.direction))
+    const animated = motionAllowed && nodes.length <= MOTION_NODE_LIMIT
+    this.canvas.setAnimated(animated)
     this.boxes = boxes
     this.order = nodes.map((n) => n.id)
     this.bounds = boundsOf(boxes)
-    this.connectors.render(
-      nodes,
-      boxes,
-      this.style.branch,
-      this.bounds.x + this.bounds.w,
-      this.bounds.y + this.bounds.h,
-    )
+    // Keep logical hit targets at their final positions. Pointer interaction finishes
+    // the short transition before hit-testing, so edits never use intermediate geometry.
+    this.motion.update(boxes, animated && !this.needsFit && !this.session && !this.drag.active, frame => {
+      this.nodeRenderer.render(nodes, frame, this.selection, rootSide(this.direction))
+      const bounds = boundsOf(frame)
+      this.connectors.render(nodes, frame, this.style.branch, bounds.x + bounds.w, bounds.y + bounds.h)
+    })
 
     if (this.needsFit && this.canvas.fit(this.bounds)) this.needsFit = false
   }
@@ -866,6 +987,7 @@ export class MindmapView extends ItemView {
    * 传不到这里；`editor.active` 那一行是兜底。
    */
   private readonly onKeyDown = (e: KeyboardEvent): void => {
+    this.motion?.finish()
     if (this.editor.active || e.isComposing) return
     // 拖拽中按 Esc = 放弃这次拖拽，文件一个字都不写
     if (e.key === 'Escape' && this.drag.active) {
@@ -875,11 +997,14 @@ export class MindmapView extends ItemView {
     }
     const mod = e.ctrlKey || e.metaKey
 
-    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z') {
+    if (mod && !e.altKey && (e.key.toLowerCase() === 'z' ||
+        (!e.shiftKey && e.key.toLowerCase() === 'y'))) {
       e.preventDefault()
-      this.undo()
+      e.stopPropagation()
+      void this.stepHistory(e.shiftKey || e.key.toLowerCase() === 'y' ? 'redo' : 'undo')
       return
     }
+    if (this.historyBusy) { e.preventDefault(); return }
     if (mod || e.altKey) return
 
     switch (e.key) {
@@ -1000,11 +1125,20 @@ export class MindmapView extends ItemView {
     return out
   }
 
-  private undo(): void {
+  private async stepHistory(direction: HistoryDirection): Promise<void> {
     const file = this.file
-    if (!file) return
-    // 不自建撤销栈：所有写入都是编辑器事务，转发过去天然一致（第 4.6 节）
-    if (!this.bridge.undo(file)) new Notice(t('notice.cannotUndo'))
+    if (!file || this.session) return
+    this.drag.cancel()
+    this.historyBusy++
+    try {
+      const result = await this.bridge.historyStep(file, direction)
+      if (result === 'conflict') new Notice(t('notice.historyConflict'))
+      else if (result === 'empty') new Notice(t(direction === 'undo' ? 'notice.cannotUndo' : 'notice.cannotRedo'))
+    } catch (err) {
+      this.onWriteFailed(err, file)
+    } finally {
+      this.historyBusy--
+    }
   }
 
   // ── 编辑会话 ────────────────────────────────────────────────
@@ -1041,6 +1175,7 @@ export class MindmapView extends ItemView {
    * 提交时才生成唯一的一次写入。
    */
   private beginDraft(intent: EditIntent): void {
+    if (this.historyBusy) return
     const tree = this.tree
     if (!tree || !this.file || this.session) return
 
@@ -1076,6 +1211,7 @@ export class MindmapView extends ItemView {
   }
 
   private beginRename(id: string): void {
+    if (this.historyBusy) return
     const tree = this.tree
     if (!tree || !this.file || this.session) return
     const node = tree.byId.get(id)
@@ -1280,7 +1416,7 @@ export class MindmapView extends ItemView {
   private applyEdit(plan: EditPlan, locate?: (tree: MindTree) => MindNode | null): MindNode | null {
     const tree = this.tree
     const file = this.file
-    if (!tree || !file || plan.length === 0) return null
+    if (!tree || !file || plan.length === 0 || this.historyBusy) return null
     const base = tree.lines
     const eol = tree.eol
 
@@ -1299,7 +1435,7 @@ export class MindmapView extends ItemView {
     const reveal = target && this.host.settings.clickToJump ? target.titleLine : undefined
     this.bridge
       .applyPlan(file, base, plan, eol, reveal)
-      .catch((err: unknown) => this.onWriteFailed(err))
+      .catch((err: unknown) => this.onWriteFailed(err, file))
     return target
   }
 
@@ -1308,7 +1444,8 @@ export class MindmapView extends ItemView {
    *
    * 此时内存里的树是「我们以为的样子」，和磁盘不一致，必须以文件为准重新来过。
    */
-  private onWriteFailed(err: unknown): void {
+  private onWriteFailed(err: unknown, file: TFile): void {
+    if (this.file !== file || !this.ready) { this.report(err); return }
     if (this.resyncing) return
     this.resyncing = true
     this.report(err)
@@ -1322,7 +1459,8 @@ export class MindmapView extends ItemView {
       if (!file) return
       this.tree = null
       this.setSelection(null)
-      this.refresh(await this.bridge.readText(file))
+      const text = await this.bridge.settledText(file)
+      if (this.file === file && this.ready) this.refresh(text)
     } finally {
       this.resyncing = false
     }

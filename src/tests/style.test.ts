@@ -47,15 +47,15 @@ describe('normalizeStyle（脏配置收拢）', () => {
     expect(normalizeStyle({ hGap: 'wide' }).hGap).toBe(DEFAULT_STYLE.hGap)
     expect(normalizeStyle({ vGap: NaN }).vGap).toBe(DEFAULT_STYLE.vGap)
     expect(normalizeStyle({ shape: 'triangle' }).shape).toBe('rounded')
-    expect(normalizeStyle({ scheme: 42 }).scheme).toBe('theme')
-    expect(normalizeStyle({ branch: 'zigzag' }).branch).toBe('curve')
+    expect(normalizeStyle({ scheme: 42 }).scheme).toBe('blue')
+    expect(normalizeStyle({ branch: 'zigzag' }).branch).toBe('elbow')
   })
 
   it('折线是合法的分支样式（M11 新增），旧版本存下的值也照收', () => {
     expect(normalizeStyle({ branch: 'elbow' }).branch).toBe('elbow')
     expect(normalizeStyle({ branch: 'straight' }).branch).toBe('straight')
     // 反过来：插件降级回不认识 elbow 的旧版本时，这个值会被收拢成默认值而不是画不出线
-    expect(normalizeStyle({ branch: 'elbow-rounded' }).branch).toBe('curve')
+    expect(normalizeStyle({ branch: 'elbow-rounded' }).branch).toBe('elbow')
   })
 
   it('单篇样式缺项以【全局】补齐，而不是以出厂默认补齐', () => {

@@ -87,6 +87,10 @@ export class Canvas {
   /** 「优雅动画」开关（M10）。视图每次绘制时对一下，改设置后下一次定位立即生效。 */
   setAnimated(on: boolean): void {
     this.animated = on
+    if (!on && this.transition) {
+      this.transition = ''
+      this.content.setCssStyles({ transition: '' })
+    }
   }
 
   /**
@@ -117,11 +121,15 @@ export class Canvas {
    * 【只平移不缩放】。折叠一下就把用户调好的缩放比例改掉，比看不见还烦人；
    * 目标比视口还大时也照样居中——那时候中间那一段才是他刚操作的地方。
    */
-  centerOn(box: Box, animate = false): void {
-    if (this.width <= 0 || this.height <= 0) return
+  centerOn(box: Box, animate = false, minScale = MIN_SCALE): boolean {
+    if (this.width <= 0 || this.height <= 0) return false
+    // Search may raise a tiny whole-map scale to make its result readable.
+    // Ordinary navigation keeps the user's scale unchanged.
+    this.scale = clamp(Math.max(this.scale, minScale), MIN_SCALE, MAX_SCALE)
     this.tx = centerTranslate(box.x * this.scale, box.w * this.scale, this.width)
     this.ty = centerTranslate(box.y * this.scale, box.h * this.scale, this.height)
     this.applyNow(animate)
+    return true
   }
 
   /**

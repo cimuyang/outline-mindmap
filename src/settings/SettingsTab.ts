@@ -6,6 +6,8 @@
 
 import { PluginSettingTab, Setting, type App, type Plugin, type TFile, type WorkspaceLeaf } from 'obsidian'
 import { t, type MsgKey } from '../i18n'
+import type { FileHistory } from '../doc/FileHistory'
+import type { SearchState } from '../view/search'
 import { normalizeOpenAsData, type OpenAsData } from './OpenAsStore'
 import { defaultStyleData, normalizeStyleData, type StyleData, type StyleStore } from './StyleStore'
 
@@ -14,7 +16,7 @@ export interface MindmapSettings {
   clickToJump: boolean
   /** 固定显示一篇笔记：开启后导图不再跟着活动笔记切换（M7。键名保持 lockFile，不迁移旧配置）。 */
   lockFile: boolean
-  /** 优雅动画：节点位置变化时做过渡。默认关——节点一多，动画就是卡顿的来源（红线 4）。 */
+  /** 默认启用短过渡；大图与系统减少动态效果时使用即时布局。 */
   gracefulAnimation: boolean
   /** 严格换行：新增 / 移动节点时，相邻标题之间补足 3 个空行（附录 A.6）。 */
   strictLineBreak: boolean
@@ -31,9 +33,9 @@ export interface MindmapSettings {
 export const DEFAULT_SETTINGS: MindmapSettings = {
   clickToJump: true,
   lockFile: false,
-  gracefulAnimation: false,
-  strictLineBreak: true,
-  listNodes: true,
+  gracefulAnimation: true,
+  strictLineBreak: false,
+  listNodes: false,
   rememberOpenAs: true,
   styles: defaultStyleData(),
   openAs: {},
@@ -62,6 +64,7 @@ export function normalizeSettings(raw: unknown): MindmapSettings {
  * 视图不直接依赖插件类——那会让 main.ts 与 view/ 互相 import。
  */
 export interface MindmapHost {
+  readonly fileHistory: FileHistory<TFile>
   readonly settings: MindmapSettings
   readonly styles: StyleStore
   saveSettings(): Promise<void>
@@ -69,6 +72,7 @@ export interface MindmapHost {
   reloadMindmaps(): void
   /** 导图这一侧的「打开为笔记」：同一个叶子就地变回 Markdown，并忘掉「以导图打开」的记忆。 */
   openAsNote(leaf: WorkspaceLeaf, file: TFile): Promise<void>
+  openSearchResult(leaf: WorkspaceLeaf, file: TFile, state: SearchState): Promise<void>
 }
 
 export class MindmapSettingTab extends PluginSettingTab {

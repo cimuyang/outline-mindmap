@@ -30,9 +30,10 @@ export class FakeElement {
 
   constructor(readonly tagName = 'div', readonly fragment = false) {}
 
-  createEl(tag: string, options?: { cls?: string }): FakeElement {
+  createEl(tag: string, options?: { cls?: string; text?: string }): FakeElement {
     const child = new FakeElement(tag)
     if (options?.cls) child.classList.add(options.cls)
+    if (options?.text) child.appendText(options.text)
     this.appendChild(child)
     return child
   }
@@ -40,6 +41,12 @@ export class FakeElement {
   createDiv(options?: { cls?: string }): FakeElement {
     return this.createEl('div', options)
   }
+
+  createSpan(options?: { cls?: string; text?: string }): FakeElement {
+    return this.createEl('span', options)
+  }
+
+  addEventListener(_type: string, _callback: unknown): void {}
 
   appendChild(child: FakeElement): FakeElement {
     if (child.fragment) {

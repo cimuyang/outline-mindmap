@@ -24,6 +24,7 @@ import type { EditPlan } from '../core/types'
 import { planToChanges } from './changes'
 import { clearHighlight, revealAndHighlight } from './highlight'
 import { clearPreviewHighlight, revealPreviewLine } from './preview'
+import { FileHistory, type HistoryDirection } from './FileHistory'
 
 export interface DocumentChange {
   file: TFile
@@ -60,8 +61,6 @@ export class DocumentBridge {
    * 只记最后一次的话，前几次的回声会被当成「用户改的」，把视图打回旧状态。
    */
   private pending: { path: string; hashes: number[] } | null = null
-  /** 写入串行化：后一次写入的行号基准是前一次写完之后的文件，必须排队。 */
-  private writes: Promise<void> = Promise.resolve()
   /** 当前有本插件行高亮的文件。 */
   private highlighted: TFile | null = null
   /** 阅读模式下当前高亮的渲染块。 */
@@ -71,11 +70,21 @@ export class DocumentBridge {
   private previewRevealFrame: number | null = null
   private previewRevealTimeout: number | null = null
   private previewRevealToken = 0
+  private readonly unsubscribeHistory: () => void
+  private changeVersion = 0
 
   constructor(
     private readonly app: App,
     private readonly onChange: (change: DocumentChange) => void,
-  ) {}
+    private readonly history = new FileHistory<TFile>(),
+  ) {
+    this.unsubscribeHistory = history.subscribe((file, text) => {
+      if (this.file !== file) return
+      this.changeVersion++
+      this.pending = null
+      this.onChange({ file, text, selfOriginated: false })
+    })
+  }
 
   /**
    * 注册文件监听。交给 owner.registerEvent 托管，owner 卸载时自动解绑。
@@ -97,6 +106,7 @@ export class DocumentBridge {
 
   /** 设定当前关注的文件；其余文件的变更一律忽略。 */
   setFile(file: TFile | null): void {
+    this.changeVersion++
     this.file = file
     this.cancelScheduled()
     this.pending = null
@@ -106,6 +116,8 @@ export class DocumentBridge {
 
   /** 事件监听由 owner.registerEvent 托管，这里清掉未触发的定时器和残留的高亮。 */
   dispose(): void {
+    this.changeVersion++
+    this.unsubscribeHistory()
     this.cancelScheduled()
     this.clearHighlight()
   }
@@ -130,12 +142,16 @@ export class DocumentBridge {
     reveal?: number,
   ): Promise<void> {
     if (plan.length === 0) return
+    this.changeVersion++
 
     // 排队：`vault.process` 是异步的，两次写入撞在一起时后一次的 base 会失效。
     // 视图那边是同步连打的（连按 10 次回车），这条队列是它的安全网。
-    const run = this.writes.then(() => this.write(file, base, plan, eol, reveal))
-    this.writes = run.catch(() => undefined)
-    await run
+    try {
+      await this.history.run(file, () => this.write(file, base, plan, eol, reveal))
+    } catch (err) {
+      this.pending = null
+      throw err
+    }
   }
 
   private async write(
@@ -150,6 +166,7 @@ export class DocumentBridge {
 
     const editor = this.editorFor(file)
     if (editor) {
+      this.history.clear(file)
       const current = splitLines(editor.getValue())
       assertUnchanged(base, current, plan)
       // 一个用户操作 = 一个事务，保证 Ctrl+Z 一次撤销（陷阱 15）
@@ -158,23 +175,59 @@ export class DocumentBridge {
       return
     }
 
+    let before = ''
+    let after = ''
     await this.app.vault.process(file, (data) => {
+      // An editor may have opened while the asynchronous file operation waited.
+      if (this.editorFor(file)) throw new Error('笔记已在编辑器中打开，请重试')
       const current = splitLines(data)
-      assertUnchanged(base, current, plan)
-      return joinLines(applyPlanToLines(current, plan), eol)
+      if (base.length !== current.length || base.some((line, i) => line !== current[i])) {
+        throw new Error('笔记已在别处修改，本次操作已取消')
+      }
+      before = data
+      after = joinLines(applyPlanToLines(current, plan), eol)
+      return after
     })
+    this.history.record(file, before, after)
   }
 
   /**
-   * 转发撤销给编辑器（第 4.6 节）。不自建撤销栈——所有写入本来就是编辑器事务。
-   *
-   * @returns 文件没在编辑器里打开时返回 false，此时无从撤销。
+   * Editor-owned history stays in the editor. File history is shared and serialized
+   * with edits; exact-content checks prevent undo from overwriting external changes.
    */
-  undo(file: TFile): boolean {
-    const editor = this.editorFor(file)
-    if (!editor) return false
-    editor.undo()
-    return true
+  historyStep(file: TFile, direction: HistoryDirection): Promise<'ok' | 'empty' | 'conflict'> {
+    return this.history.run(file, async () => {
+      const editor = this.editorFor(file)
+      if (editor) {
+        this.history.clear(file)
+        if (direction === 'undo') editor.undo()
+        else editor.redo()
+        this.pending = null
+        this.history.publish(file, editor.getValue())
+        return 'ok'
+      }
+      const entry = this.history.peek(file, direction)
+      if (!entry) return 'empty'
+      const expected = direction === 'undo' ? entry.after : entry.before
+      const replacement = direction === 'undo' ? entry.before : entry.after
+      let conflict = false
+      await this.app.vault.process(file, (data) => {
+        if (this.editorFor(file) || data !== expected) {
+          conflict = true
+          return data
+        }
+        return replacement
+      })
+      this.pending = null
+      if (conflict) {
+        this.history.clear(file)
+        this.history.publish(file, await this.readText(file))
+        return 'conflict'
+      }
+      this.history.commit(file, direction, entry)
+      this.history.publish(file, replacement)
+      return 'ok'
+    })
   }
 
   /** 记住刚写出去的内容 hash。只留最近几条，够覆盖一个防抖窗口里的连打就行。 */
@@ -197,6 +250,11 @@ export class DocumentBridge {
   async readText(file: TFile): Promise<string> {
     const editor = this.editorFor(file)
     return editor ? editor.getValue() : await this.app.vault.cachedRead(file)
+  }
+
+  /** Recovery must wait for already queued edits before replacing the optimistic tree. */
+  settledText(file: TFile): Promise<string> {
+    return this.history.run(file, () => this.readText(file))
   }
 
   /**
@@ -379,12 +437,12 @@ export class DocumentBridge {
    * 视图都没建起来，本来就没有编辑器事务可言，它下次加载时从磁盘读。
    */
   private editorFor(file: TFile): Editor | null {
-    return this.viewFor(file)?.editor ?? null
-  }
-
-  private viewFor(file: TFile): MarkdownView | null {
-    const view = this.leafFor(file)?.view
-    return view instanceof MarkdownView ? view : null
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const view = leaf.view
+      if (view instanceof MarkdownView && view.file === file &&
+          leaf.getViewState().state?.['file'] === file.path) return view.editor
+    }
+    return null
   }
 
   /**
@@ -426,7 +484,9 @@ export class DocumentBridge {
   private async emit(): Promise<void> {
     const file = this.file
     if (!file) return
+    const version = this.changeVersion
     const text = await this.readText(file)
+    if (this.file !== file || version !== this.changeVersion) return
 
     // 文件当前内容正好等于我们写过的某一份 → 这是自己的回声。
     // 命中即整串作废：比它早的那几份都已经被覆盖，留着也没意义了。

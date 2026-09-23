@@ -14,7 +14,7 @@ copy of the state.
 
 ![](https://github.com/cimuyang/outline-mindmap/blob/main/demo1.png)
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.2**
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.3**
 - The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
 ## Features
@@ -25,8 +25,8 @@ copy of the state.
 4. **Note ⇄ map, in place**: *打开为导图* (Open as mindmap) turns the current tab into a map; *打开为笔记* (Open as note) turns it back. Same tab, no extra tabs piling up. A converted note is remembered and opens as a map next time (can be turned off in Settings).
 5. **Drag to rearrange**: Drop on a node's top or bottom edge to insert before or after, drop in the middle to make it a child, drop on empty space to start a new root. Cross the 6th level and headings and list items convert automatically — with the body text underneath moving along.
 6. **Keyboard-first**: `Enter` for a sibling, `Tab` for a child, arrow keys to move around, `Delete` to remove a whole subtree, `Esc` to abandon anything without writing a byte. Your hands never leave the keys.
-7. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides; and each level can get its own colour (**colour by level** — text and border, palette taken from the theme so light and dark both look right). Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
-8. **Smooth animation, if you want it**: Node movement, layout changes and expand/collapse can all glide. It ships off — that smoothness is your call. What never changes: after a collapse, the node you just clicked is still dead centre.
+7. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides; and each level can get its own colour (**colour by level** — text and border, separate palettes for light and dark themes). Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
+8. **Smooth animation, if you want it**: Node movement, layout changes and expand/collapse can all glide. It is on by default, with synchronized nodes and edges. Reduced-motion preferences and maps above 250 visible nodes disable motion. What never changes: after a collapse, the node you just clicked is still dead centre.
 9. **Headings only, when you want that**: The setting *把列表项显示为节点* (Show list items as nodes) turns list items off — the map shows headings only, the lists go back to being body text, and the note itself is not changed by one byte. Flip it back and every list node is exactly where it was.
 
 ## Three lines that will never be crossed
@@ -36,17 +36,15 @@ copy of the state.
 2. **Never rewrites a file wholesale.** Every write-back is a minimal replacement of a specific
    line range; every byte outside that range stays identical — your hand-made blank lines,
    indentation and line endings (LF / CRLF) are preserved exactly.
-3. **One action = one undo.** All writes go through editor transactions, so `Ctrl+Z` takes you
-   straight back.
+3. **One action = one undo.** Open editors retain their native history. Pure maps use bounded,
+   session-only file history and refuse to undo over content changed elsewhere.
 
 ## Install
 
 Not in the community plugin browser yet, so install manually:
 
 1. Download `main.js`, `manifest.json` and `styles.css` from the
-   [Releases](../../releases/latest) page — those three files are the whole plugin, and each
-   release carries a GitHub [build provenance attestation](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
-   so you can verify they really were built from this repository.
+   [Releases](../../releases/latest) page — those three files are the whole plugin.
 2. Put them in `<your vault>/.obsidian/plugins/outline-mindmap/`
 3. Enable **Outline Mindmap** under *Settings → Community plugins*
 
@@ -134,7 +132,8 @@ only make it unpredictable.
 | `Tab` | Add a child to the current node |
 | `F2` / double-click a node | Rename |
 | `Delete` / `Backspace` | Delete the selected node and its whole subtree |
-| `Ctrl/⌘ + Z` | Undo (forwarded to the editor) |
+| `Ctrl/⌘ + Z` | Undo (also works with only the map open) |
+| `Ctrl/⌘ + Shift + Z` / `Ctrl + Y` | Redo |
 | `Esc` | Abandon the current edit or drag — not a single character is written |
 | Double-click empty space | Create a new free root node |
 | `Ctrl/⌘ + click` | Add to / remove from the selection (for deleting a batch) |
@@ -157,9 +156,9 @@ Expand all · Collapse all · Style settings.
 | --- | --- | --- |
 | 单击即跳转 (Click to jump) | On | Clicking a node scrolls the visible note to the matching heading or list item and highlights it in both Editing and Reading view (focus stays on the map); after you create / rename / delete / drag a node, the note also stays at that node. **It only scrolls a note that is already visible on screen** — it never opens a tab, never splits a pane, never pulls a background tab to the front. Turn it off and a click only selects |
 | 固定显示一篇笔记 (Always show one note) | Off | The map stops following the active note and stays on the one it was opened with |
-| 优雅动画 (Smooth animation) | **Off** | Smooth transitions for node movement, layout switching and the viewport follow on expand/collapse. Noticeably slower with many nodes |
-| 严格换行 (Strict blank lines) | On | When adding / moving nodes, pad adjacent headings to 3 blank lines apart |
-| 把列表项显示为节点 (Show list items as nodes) | On | Turn it off and the map shows headings only: list items go back to being body text under their heading. The note itself is not touched; switching back restores every list node. While it is off, adding or dragging past level 6 is blocked with a notice — a level-7 heading has no visible syntax to write |
+| 优雅动画 (Smooth animation) | On | Nodes and edges move together. Disabled above 250 visible nodes or when the system requests reduced motion |
+| 严格换行 (Strict blank lines) | Off | When enabled, adding / moving nodes pads adjacent headings to 3 blank lines apart |
+| 把列表项显示为节点 (Show list items as nodes) | Off | Turn it off and the map shows headings only: list items go back to being body text under their heading. The note itself is not touched; switching back restores every list node. While it is off, adding or dragging past level 6 is blocked with a notice — a level-7 heading has no visible syntax to write |
 | 记住每篇笔记的打开方式 (Remember how each note opens) | On | A note converted with **Open as mindmap** opens as a mindmap next time, in whichever tab it appears; **Open as note** restores it, in the Reading / Editing mode it had when converted. The record lives only in the plugin's `data.json` and is migrated or cleaned up when the note is renamed, moved or deleted. Switching form does not enter tab history, so *Back* / *Forward* move between notes only |
 
 Styles — shape, colour scheme, **colour by level**, font size, horizontal and vertical gaps,
@@ -208,7 +207,7 @@ layout, first render (rebuilding all DOM) and redraw actually took.
 ```bash
 npm run dev        # watch build
 npm run typecheck  # strict type-check
-npm test           # 524 unit tests
+npm test           # unit + integration tests
 ```
 
 The directory layering is a hard constraint: `core/` (parsing, serialisation, structural
@@ -227,12 +226,22 @@ It overwrites only `main.js`, `manifest.json` and `styles.css` — never `data.j
 If the vault already has this plugin under a differently-named folder, it reuses that folder
 rather than creating a second copy with the same plugin id.
 
-Releases are cut by tag: bump the version in `manifest.json`, `package.json` and `versions.json`,
-then `git tag 1.3.2 && git push origin 1.3.2`. The workflow runs the tests, builds, checks the
-tag against the manifest, attests provenance and uploads exactly those three files.
+Before publishing, run `npm test` and `npm run build`. Keep `manifest.json`,
+`package.json`, `package-lock.json` and `versions.json` in sync, then attach
+`main.js`, `manifest.json` and `styles.css` to the `1.3.3` GitHub release.
 **The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
 
 ## What's new
+
+### v1.3.3
+
+- **Undo/redo in map-only mode**: use shortcuts or the pane menu without opening the note. Maps of the same file share session history.
+- **Search navigation and highlighting**: opening an Obsidian search result reveals, centers and highlights its matching node. Body text and hidden lists show a highlighted excerpt, with a shortcut to the original note.
+- **Refined level colors**: six distinct, muted colors for light and dark themes, with softer borders.
+- **Synchronized animation**: nodes and edges move together; large maps and reduced-motion preferences disable animation.
+- **New defaults**: elbow branches, blue palette, animation on, strict line breaks off, and list nodes off. Existing explicit settings and per-note styles are preserved.
+
+Undo history lasts for the current session. Search highlights never alter notes and clear when the content changes. Use **View in note** for exact matches in hidden markup or math source.
 
 ### v1.3.2
 

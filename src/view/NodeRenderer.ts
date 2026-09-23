@@ -17,6 +17,7 @@ interface Slot {
   toggleEl: HTMLElement
   /** 上一次写进去的值，用来跳过没必要的 DOM 写入。null = 还没写过。 */
   text: string | null
+  searchKey: string
   transform: string
   w: number
   h: number
@@ -29,13 +30,11 @@ interface Slot {
   dropInto: boolean
   /** 上一次写的层级 class（1–6）。0 = 还没写过。 */
   level: number
-  /** 这一帧刚从池子里认领出来。见 update() 里关掉过渡的那一段。 */
-  fresh: boolean
-  /** 当前正压着 `transition: none`。记在这里，免得每帧去读一次 el.style。 */
-  noTransition: boolean
 }
 
 export class NodeRenderer {
+  private search: ReadonlyMap<string, readonly string[]> = new Map()
+  setSearch(matches: ReadonlyMap<string, readonly string[]>): void { this.search = matches }
   private readonly active = new Map<string, Slot>()
   private readonly pool: Slot[] = []
   /**
@@ -140,7 +139,6 @@ export class NodeRenderer {
     const slot = this.pool.pop() ?? this.create()
     slot.el.dataset['nodeId'] = id
     slot.el.removeClass('is-hidden')
-    slot.fresh = true
     this.active.set(id, slot)
     return slot
   }
@@ -164,6 +162,7 @@ export class NodeRenderer {
       textEl,
       toggleEl,
       text: null, // 还没写过任何文字，保证首次一定写入
+      searchKey: '',
       transform: '',
       w: -1,
       h: -1,
@@ -176,8 +175,6 @@ export class NodeRenderer {
       dragging: false,
       dropInto: false,
       level: 0,
-      fresh: false,
-      noTransition: false,
     }
   }
 
@@ -188,10 +185,29 @@ export class NodeRenderer {
    * `<img onerror=…>` 到了文本节点就只是字符（陷阱 13），
    * 不存在「哪天漏了一次转义」这种可能。
    */
-  private static renderTextInto(host: HTMLElement, text: string): boolean {
+  private static renderTextInto(host: HTMLElement, text: string, terms: readonly string[] = []): boolean {
     host.empty()
     let renderedMath = false
-    for (const seg of parseInline(text)) {
+    const segments = parseInline(text)
+    const visible = segments.map(s => s.text).join('')
+    const ranges: [number, number][] = []
+    for (const term of new Set(terms.map(t => parseInline(t).map(s => s.text).join('')))) {
+      if (!term) continue
+      let from = 0, at: number
+      while ((at = visible.indexOf(term, from)) >= 0) {
+        ranges.push([at, at + term.length])
+        from = at + term.length
+      }
+    }
+    ranges.sort((a, b) => a[0] - b[0])
+    const merged: [number, number][] = []
+    for (const range of ranges) {
+      const last = merged.at(-1)
+      if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1])
+      else merged.push([...range])
+    }
+    let offset = 0, rangeIndex = 0
+    for (const seg of segments) {
       // 内层在前、外层在后，所以从后往前套：strong > em > mark > s > span.om-link > 文字
       let target = host
       for (const { tag, cls } of tagsFor(seg).reverse()) {
@@ -210,8 +226,18 @@ export class NodeRenderer {
       } else {
         // 不能用 host.setText：一行里有「普通文字 + 强调/链接/公式 + 普通文字」时，
         // 后一个纯文字片段会把前面已经创建的子节点整棵清掉。appendText 才是逐片段拼接。
-        target.appendText(seg.text)
+        let start = 0
+        while (start < seg.text.length) {
+          while (merged[rangeIndex] && merged[rangeIndex]![1] <= offset + start) rangeIndex++
+          const range = merged[rangeIndex]
+          const marked = range !== undefined && range[0] <= offset + start
+          const end = Math.min(seg.text.length, range ? (marked ? range[1] : range[0]) - offset : seg.text.length)
+          const parent = marked ? target.createEl('mark', { cls: 'om-search-match' }) : target
+          parent.appendText(seg.text.slice(start, end))
+          start = end
+        }
       }
+      offset += seg.text.length
     }
     return renderedMath
   }
@@ -238,21 +264,13 @@ export class NodeRenderer {
     side: NodeSide,
   ): boolean {
     let renderedMath = false
-    // 「优雅动画」开着时，节点位置的变化会走 CSS 过渡（M9 的布局切换动画就是它）。
-    // 但刚认领的元素不能过渡：新出现的节点会从原点飞进来，池子里回收来的还会
-    // 带着上一个节点的位置横穿整个画面。这一帧先把过渡关掉，下一帧再交还给 CSS。
-    if (slot.fresh) {
-      slot.fresh = false
-      slot.noTransition = true
-      slot.el.setCssStyles({ transition: 'none' })
-    } else if (slot.noTransition) {
-      slot.noTransition = false
-      slot.el.setCssStyles({ transition: '' })
-    }
-
-    if (slot.text !== node.text) {
-      renderedMath = NodeRenderer.renderTextInto(slot.textEl, node.text)
+    const terms = this.search.get(node.id)
+    const searchKey = terms ? JSON.stringify(terms) : ''
+    slot.el.toggleClass('is-search-match', terms !== undefined)
+    if (slot.text !== node.text || slot.searchKey !== searchKey) {
+      renderedMath = NodeRenderer.renderTextInto(slot.textEl, node.text, terms)
       slot.text = node.text
+      slot.searchKey = searchKey
     }
 
     const transform = `translate(${box.x}px, ${box.y}px)`

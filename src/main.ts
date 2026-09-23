@@ -1,8 +1,10 @@
-import { MarkdownView, Notice, Plugin, TFile, type ViewState, type WorkspaceLeaf } from 'obsidian'
+import { MarkdownView, Notice, Plugin, TFile, type ViewState, WorkspaceLeaf } from 'obsidian'
 import { highlightExtension } from './doc/highlight'
 import { annotatePreviewSection } from './doc/preview'
 import { t } from './i18n'
 import { OpenAsStore, type NoteMode } from './settings/OpenAsStore'
+import { FileHistory } from './doc/FileHistory'
+import { observeEphemeralState, searchState, type SearchState } from './view/search'
 import {
   MindmapSettingTab,
   normalizeSettings,
@@ -14,6 +16,10 @@ import { MindmapView, VIEW_TYPE_MINDMAP } from './view/MindmapView'
 
 /** 插件入口，只做注册与装配（第 3 章）。 */
 export default class OutlineMindmapPlugin extends Plugin implements MindmapHost {
+  readonly fileHistory = new FileHistory<TFile>()
+  private readonly searches = new WeakMap<WorkspaceLeaf, { file: TFile; state: SearchState }>()
+  private readonly searchNotes = new WeakMap<WorkspaceLeaf, TFile>()
+  private disposed = false
   settings: MindmapSettings = normalizeSettings(null)
   /** 样式两级存储。它就地读写 `settings.styles`，落盘复用 saveSettings（红线 1：只进 data.json）。 */
   styles!: StyleStore
@@ -22,6 +28,26 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
 
   override async onload(): Promise<void> {
     await this.loadSettings()
+    this.register(() => { this.disposed = true })
+    // MarkdownView.getEphemeralState omits search matches. Capture only explicit
+    // search payloads for remembered notes, without changing native handling.
+    this.register(observeEphemeralState(WorkspaceLeaf.prototype, (leaf, value) => {
+      const view = leaf.view
+      if (!(view instanceof MarkdownView) || !view.file || !this.settings.rememberOpenAs ||
+          !this.openAs.isMindmap(view.file.path)) return
+      if (this.searchNotes.get(leaf) === view.file) return
+      const state = searchState(value)
+      if (!state) return
+      this.searches.set(leaf, { file: view.file, state })
+      // setViewState is still finishing when eState arrives. A microtask runs
+      // after its synchronous finalization, without relying on a fixed delay.
+      queueMicrotask(() => {
+        if (!this.disposed && leaf.view === view) void this.replay(leaf)
+      })
+    }))
+    this.registerEvent(this.app.workspace.on('editor-change', (_editor, info) => {
+      if (info.file) this.fileHistory.clear(info.file)
+    }))
 
     this.registerView(VIEW_TYPE_MINDMAP, (leaf) => new MindmapView(leaf, this))
     // 行高亮的 CM 扩展。注册在插件上，卸载插件时 Obsidian 自动摘掉。
@@ -44,6 +70,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     )
     this.registerEvent(
       this.app.vault.on('delete', (file) => {
+        if (file instanceof TFile) this.fileHistory.clear(file)
         this.styles.remove(file.path)
         this.openAs.remove(file.path)
       }),
@@ -182,6 +209,8 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
   private async replay(leaf: WorkspaceLeaf | null): Promise<void> {
     const view = leaf?.view
     if (!leaf || !this.settings.rememberOpenAs || !(view instanceof MarkdownView) || !view.file) return
+    if (this.searchNotes.get(leaf) === view.file) return
+    this.searchNotes.delete(leaf)
     if (this.openAs.isMindmap(view.file.path)) await this.openAsMindmap(view.file, leaf)
   }
 
@@ -200,6 +229,8 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
    */
   private async openAsMindmap(file: TFile, leaf?: WorkspaceLeaf): Promise<void> {
     const target = leaf ?? this.app.workspace.getLeaf('tab')
+    this.searchNotes.delete(target)
+    const search = this.searches.get(target)
     await this.switchForm(target, {
       type: VIEW_TYPE_MINDMAP,
       active: true,
@@ -207,7 +238,8 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
       // 换形态之后这个叶子里已经是导图而不是笔记，Obsidian 问「活动笔记」时会回退到
       // 【别的】标签页里最近活动的那篇，猜出来的永远是上一篇（issue #5）。
       state: { file: file.path, pinned: true },
-    })
+    }, search?.file === file ? search.state : undefined)
+    if (target.view instanceof MindmapView) this.searches.delete(target)
     await this.app.workspace.revealLeaf(target)
   }
 
@@ -218,6 +250,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
    * 再换成导图，来回死循环。模式用转换时记下的那一个，阅读模式的用户不会被切到编辑模式。
    */
   async openAsNote(leaf: WorkspaceLeaf, file: TFile): Promise<void> {
+    this.fileHistory.clear(file)
     const mode = this.openAs.noteModeOf(file.path)
     this.openAs.forget(file.path)
     await this.switchForm(leaf, {
@@ -225,6 +258,15 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
       active: true,
       state: { file: file.path, mode },
     })
+  }
+
+  /** Explicit, temporary source view; keep this note's remembered default intact. */
+  async openSearchResult(leaf: WorkspaceLeaf, file: TFile, state: SearchState): Promise<void> {
+    this.searchNotes.set(leaf, file)
+    this.searches.delete(leaf)
+    this.fileHistory.clear(file)
+    await this.switchForm(leaf, { type: 'markdown', active: true,
+      state: { file: file.path, mode: this.openAs.noteModeOf(file.path) } }, state)
   }
 
   /**
@@ -236,8 +278,8 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
    * setViewState 时用来表示「这一步别记」的标记；它不在公开类型里，万一将来失效，
    * 退化行为只是「后退到笔记形态后被换回导图」，不涉及任何数据。
    */
-  private switchForm(leaf: WorkspaceLeaf, state: ViewState): Promise<void> {
-    return leaf.setViewState({ ...state, popstate: true } as ViewState)
+  private switchForm(leaf: WorkspaceLeaf, state: ViewState, ephemeral?: SearchState): Promise<void> {
+    return leaf.setViewState({ ...state, popstate: true } as ViewState, ephemeral)
   }
 
   /**

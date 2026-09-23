@@ -42,8 +42,8 @@ export const DEFAULT_STYLE: MindmapStyle = {
   hGap: DEFAULT_LAYOUT.hGap,
   vGap: DEFAULT_LAYOUT.vGap,
   shape: 'rounded',
-  branch: 'curve',
-  scheme: 'theme',
+  branch: 'elbow',
+  scheme: 'blue',
   fontScale: 1,
   colorByLevel: false,
 }

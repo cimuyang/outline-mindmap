@@ -38,6 +38,31 @@ const boxes: LayoutResult = new Map([
 ])
 
 describe('NodeRenderer math integration', () => {
+  it('highlights text across formatting without altering the rendered text or math', () => {
+    const layer = new FakeElement('div')
+    const renderer = new NodeRenderer(layer as unknown as HTMLElement)
+    renderer.setSearch(new Map([['n1', ['**word** here']]]))
+    renderer.render([node('**word** here $x$')], boxes, new Set())
+    expect(textOf(findByClass(layer, 'om-node-text')[0]!)).toBe('word here ⟦x⟧')
+    expect(findByClass(layer, 'om-search-match').map(textOf).join('')).toBe('word here')
+    expect(findByClass(layer, 'is-search-match')).toHaveLength(1)
+    renderer.setSearch(new Map())
+    renderer.render([node('**word** here $x$')], boxes, new Set())
+    expect(findByClass(layer, 'om-search-match')).toHaveLength(0)
+    expect(findByClass(layer, 'is-search-match')).toHaveLength(0)
+  })
+
+  it('clears search decoration when a pooled element is reused for a different node', () => {
+    const layer = new FakeElement('div')
+    const renderer = new NodeRenderer(layer as unknown as HTMLElement)
+    renderer.setSearch(new Map([['n1', ['word']]]))
+    renderer.render([node('word')], boxes, new Set())
+    renderer.render([], new Map(), new Set())
+    renderer.render([{ ...node('word'), id: 'n2' }], new Map([['n2', boxes.get('n1')!]]), new Set())
+    expect(findByClass(layer, 'om-search-match')).toHaveLength(0)
+    expect(findByClass(layer, 'is-search-match')).toHaveLength(0)
+  })
+
   beforeEach(() => {
     renderMath.mockClear()
     finishRenderMath.mockClear()

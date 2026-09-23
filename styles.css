@@ -44,50 +44,44 @@
   --om-edge: rgba(224, 138, 60, 0.55);
 }
 
-/*
- * 多彩标题（样式窗口里的开关）：只给文字与边框着色。
- *
- * 层级规则不改任何 border-color / color 的书写位置，只在节点上重新定义
- * --om-node-border / --om-node-border-hover 两个变量——下面那些照旧读变量的规则
- * （基础边框、悬停、下划线形状的 border-bottom）拿到的自然是层级色；
- * 选中与拖拽落点用的 --om-accent 不在此列，交互态照常醒目。
- *
- * 色板取 Obsidian 内置色，明暗主题各自适配；列表层级超过 6 时 class 由 JS 按 6 循环。
- */
-.om-root.om-level-colors .om-node.om-l1 {
-  color: var(--color-red);
-  --om-node-border: var(--color-red);
-  --om-node-border-hover: var(--color-red);
+/* Muted level palette: readable text, lighter borders, separate light/dark values.
+   Theme and scheme accents still own selection, dragging and connector colors. */
+.om-root {
+  --om-level-1: 81, 93, 148;
+  --om-level-2: 130, 99, 41;
+  --om-level-3: 46, 114, 100;
+  --om-level-4: 135, 91, 132;
+  --om-level-5: 155, 84, 68;
+  --om-level-6: 62, 110, 139;
+}
+.theme-dark .om-root {
+  --om-level-1: 171, 179, 225;
+  --om-level-2: 215, 186, 131;
+  --om-level-3: 133, 191, 174;
+  --om-level-4: 206, 162, 200;
+  --om-level-5: 223, 165, 148;
+  --om-level-6: 143, 189, 213;
 }
 
-.om-root.om-level-colors .om-node.om-l2 {
-  color: var(--color-orange);
-  --om-node-border: var(--color-orange);
-  --om-node-border-hover: var(--color-orange);
+.om-root.om-level-colors .om-node.om-l1 { --om-level-rgb: var(--om-level-1); }
+.om-root.om-level-colors .om-node.om-l2 { --om-level-rgb: var(--om-level-2); }
+.om-root.om-level-colors .om-node.om-l3 { --om-level-rgb: var(--om-level-3); }
+.om-root.om-level-colors .om-node.om-l4 { --om-level-rgb: var(--om-level-4); }
+.om-root.om-level-colors .om-node.om-l5 { --om-level-rgb: var(--om-level-5); }
+.om-root.om-level-colors .om-node.om-l6 { --om-level-rgb: var(--om-level-6); }
+
+.om-root.om-level-colors .om-node {
+  color: rgb(var(--om-level-rgb));
+  --om-node-border: rgba(var(--om-level-rgb), 0.42);
+  --om-node-border-hover: rgba(var(--om-level-rgb), 0.78);
 }
 
-.om-root.om-level-colors .om-node.om-l3 {
-  color: var(--color-yellow);
-  --om-node-border: var(--color-yellow);
-  --om-node-border-hover: var(--color-yellow);
-}
-
-.om-root.om-level-colors .om-node.om-l4 {
-  color: var(--color-green);
-  --om-node-border: var(--color-green);
-  --om-node-border-hover: var(--color-green);
-}
-
-.om-root.om-level-colors .om-node.om-l5 {
-  color: var(--color-cyan);
-  --om-node-border: var(--color-cyan);
-  --om-node-border-hover: var(--color-cyan);
-}
-
-.om-root.om-level-colors .om-node.om-l6 {
-  color: var(--color-purple);
-  --om-node-border: var(--color-purple);
-  --om-node-border-hover: var(--color-purple);
+/* A title consisting of a wiki link must still show its level color. */
+.om-root.om-level-colors .om-node-text .om-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--om-level-rgb), 0.42);
+  text-underline-offset: 0.15em;
 }
 
 /* 节点形状（M8）。【只改边框与圆角，绝不动 padding】——内边距是 measure.ts 算宽高的依据，
@@ -122,18 +116,9 @@
   border-bottom-color: var(--om-accent);
 }
 
-/*
- * 优雅动画（M8 设置项，默认关）。M9 的「布局切换动画」用的也是这一条：
- * 换方向只改节点的 transform，开着这个开关，节点就自己滑过去了。
- *
- * 只过渡 transform：它走合成器，不触发重排。宽高一并过渡的话，
- * 每一帧都要重新布局，节点一多必卡（红线 4）。
- *
- * 刚出现（或刚从复用池里认领）的节点由 NodeRenderer 临时关掉过渡，
- * 否则它们会从原点、或从上一个占用者的位置飞过来。
- */
-.om-root.om-animated .om-node {
-  transition: transform 140ms ease-out;
+/* LayoutMotion animates nodes and edges together; no independent CSS transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .om-root .om-content { transition: none !important; }
 }
 
 .om-viewport {
@@ -525,4 +510,48 @@
 
 .om-style-modal h3 {
   margin-top: 0;
+}
+.om-node.is-search-match {
+  outline: 3px solid #b77914;
+  outline-offset: 3px;
+}
+.om-node-text mark.om-search-match,
+.om-search-excerpt mark.om-search-match {
+  background: #ffe29a;
+  color: #33240c;
+  padding: 0;
+  margin: 0;
+  border-radius: 2px;
+}
+.theme-dark .om-node.is-search-match { outline-color: #e7b65c; }
+.theme-dark .om-node-text mark.om-search-match,
+.theme-dark .om-search-excerpt mark.om-search-match {
+  background: #e7b65c;
+  color: #241b0c;
+}
+.om-search-bar {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  font-size: var(--font-ui-small);
+}
+.om-search-bar.is-hidden { display: none; }
+.om-search-bar span { flex: 1 1 140px; }
+.om-search-excerpt {
+  flex: 1 1 100%;
+  max-height: 4.5em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-normal);
 }
