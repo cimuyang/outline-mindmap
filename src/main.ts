@@ -12,6 +12,7 @@ import {
   type MindmapSettings,
 } from './settings/SettingsTab'
 import { StyleStore } from './settings/StyleStore'
+import { ViewPreferences } from './settings/ViewPreferences'
 import { MindmapView, VIEW_TYPE_MINDMAP } from './view/MindmapView'
 
 /** 插件入口，只做注册与装配（第 3 章）。 */
@@ -25,6 +26,8 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
   styles!: StyleStore
   /** 「以导图打开」的记忆。同样就地读写 `settings.openAs`，只进 data.json。 */
   openAs!: OpenAsStore
+  preferences!: ViewPreferences
+  private settingsWrite: Promise<void> = Promise.resolve()
 
   override async onload(): Promise<void> {
     await this.loadSettings()
@@ -66,6 +69,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
       this.app.vault.on('rename', (file, oldPath) => {
         this.styles.rename(oldPath, file.path)
         this.openAs.rename(oldPath, file.path)
+        this.preferences.rename(oldPath, file.path)
       }),
     )
     this.registerEvent(
@@ -73,6 +77,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
         if (file instanceof TFile) this.fileHistory.clear(file)
         this.styles.remove(file.path)
         this.openAs.remove(file.path)
+        this.preferences.remove(file.path)
       }),
     )
 
@@ -186,10 +191,17 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     }
     this.styles = new StyleStore(this.settings.styles, persist)
     this.openAs = new OpenAsStore(this.settings.openAs, persist)
+    this.preferences = new ViewPreferences(this.settings.views, persist)
+    const preferences = this.preferences
+    this.register(() => preferences.flush())
   }
 
   async saveSettings(): Promise<void> {
-    await this.saveData(this.settings)
+    // Serialize snapshots so a slower old save cannot overwrite a newer preference.
+    const snapshot = JSON.parse(JSON.stringify(this.settings)) as MindmapSettings
+    const write = this.settingsWrite.catch(() => {}).then(() => this.saveData(snapshot))
+    this.settingsWrite = write
+    await write
   }
 
   /** 解析类设置变了：所有开着的导图按新规则重新解析当前笔记（MindmapHost）。 */
@@ -229,6 +241,9 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
    */
   private async openAsMindmap(file: TFile, leaf?: WorkspaceLeaf): Promise<void> {
     const target = leaf ?? this.app.workspace.getLeaf('tab')
+    const original = target.view
+    const noteMode = original instanceof MarkdownView && original.file === file
+      ? original.getMode() : this.openAs.noteModeOf(file.path)
     this.searchNotes.delete(target)
     const search = this.searches.get(target)
     await this.switchForm(target, {
@@ -237,7 +252,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
       // 【钉在这一篇上】：它是这篇笔记的标签页换了形态，不跟随活动笔记，也不让导图去猜——
       // 换形态之后这个叶子里已经是导图而不是笔记，Obsidian 问「活动笔记」时会回退到
       // 【别的】标签页里最近活动的那篇，猜出来的永远是上一篇（issue #5）。
-      state: { file: file.path, pinned: true },
+      state: { file: file.path, pinned: true, noteMode },
     }, search?.file === file ? search.state : undefined)
     if (target.view instanceof MindmapView) this.searches.delete(target)
     await this.app.workspace.revealLeaf(target)
@@ -249,9 +264,8 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
    * 【先忘、再换】：换回去的那一刻会触发 active-leaf-change，记忆若还在，回放那一路会立刻把它
    * 再换成导图，来回死循环。模式用转换时记下的那一个，阅读模式的用户不会被切到编辑模式。
    */
-  async openAsNote(leaf: WorkspaceLeaf, file: TFile): Promise<void> {
+  async openAsNote(leaf: WorkspaceLeaf, file: TFile, mode: NoteMode = this.openAs.noteModeOf(file.path)): Promise<void> {
     this.fileHistory.clear(file)
-    const mode = this.openAs.noteModeOf(file.path)
     this.openAs.forget(file.path)
     await this.switchForm(leaf, {
       type: 'markdown',
@@ -261,12 +275,13 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
   }
 
   /** Explicit, temporary source view; keep this note's remembered default intact. */
-  async openSearchResult(leaf: WorkspaceLeaf, file: TFile, state: SearchState): Promise<void> {
+  async openSearchResult(leaf: WorkspaceLeaf, file: TFile, state: SearchState,
+    mode: NoteMode = this.openAs.noteModeOf(file.path)): Promise<void> {
     this.searchNotes.set(leaf, file)
     this.searches.delete(leaf)
     this.fileHistory.clear(file)
     await this.switchForm(leaf, { type: 'markdown', active: true,
-      state: { file: file.path, mode: this.openAs.noteModeOf(file.path) } }, state)
+      state: { file: file.path, mode } }, state)
   }
 
   /**

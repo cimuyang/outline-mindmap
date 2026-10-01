@@ -2,42 +2,27 @@
 
 **English** · [中文](readme-zh.md) · [插件介绍（可在 Obsidian 里直接打开的演示笔记）](插件介绍.md)
 
-Render the heading outline of a Markdown note as a mindmap, with **two-way live editing** —
-colour it by level, drive it entirely from the keyboard, and never let it touch a byte of your
-Markdown it shouldn't.
+Turn a Markdown note’s outline into a mindmap with live two-way editing, click-to-locate navigation and customizable styles. The note remains the source of truth; settings stay in the plugin’s `data.json`, without adding frontmatter, tags or hidden markers.
 
-Edit a node in the map and you are editing that line of the note; type a character in the note
-and the map follows immediately. They are two views of one piece of data — there is no third
-copy of the state.
+![Outline Mindmap demo](demo.gif)
 
-![](https://github.com/cimuyang/outline-mindmap/blob/main/demo.gif)
+Demos were recorded with an earlier version; in 1.3.4, layout direction is in **Style settings**.
 
-![](https://github.com/cimuyang/outline-mindmap/blob/main/demo1.png)
+![Outline Mindmap demo](demo1.png)
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.3**
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.4**
 - The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
 ## Features
 
-1. **Plain Markdown in, clean Markdown out**: Headings and lists become a mindmap on their own — no YAML, no injected properties, no hidden comments. Every setting lives in the plugin's own `data.json`. Your Markdown stays Markdown, and stays usable anywhere.
-2. **Two-way live sync**: Edit the note and the map follows; drag a node and the note updates. Write-back replaces only that line — every byte outside it is untouched — and one action is one undo, so the two sides never drift apart.
-3. **Click to locate**: Click a node and the visible note scrolls to the matching line and highlights it in both Editing and Reading view; double-click to rename. After you add, rename or drag a node, the note stays right where you were working — outline and prose, no seam in between.
-4. **Note ⇄ map, in place**: *打开为导图* (Open as mindmap) turns the current tab into a map; *打开为笔记* (Open as note) turns it back. Same tab, no extra tabs piling up. A converted note is remembered and opens as a map next time (can be turned off in Settings).
-5. **Drag to rearrange**: Drop on a node's top or bottom edge to insert before or after, drop in the middle to make it a child, drop on empty space to start a new root. Cross the 6th level and headings and list items convert automatically — with the body text underneath moving along.
-6. **Keyboard-first**: `Enter` for a sibling, `Tab` for a child, arrow keys to move around, `Delete` to remove a whole subtree, `Esc` to abandon anything without writing a byte. Your hands never leave the keys.
-7. **Styles worth looking at**: Shape, colours, font size and spacing are all yours to tune; edges can be straight, diagonal or elbow; branches can grow right, left, or split evenly to both sides; and each level can get its own colour (**colour by level** — text and border, separate palettes for light and dark themes). Global and per-note levels, live preview as you drag a slider, and Cancel puts it all back.
-8. **Smooth animation, if you want it**: Node movement, layout changes and expand/collapse can all glide. It is on by default, with synchronized nodes and edges. Reduced-motion preferences and maps above 250 visible nodes disable motion. What never changes: after a collapse, the node you just clicked is still dead centre.
-9. **Headings only, when you want that**: The setting *把列表项显示为节点* (Show list items as nodes) turns list items off — the map shows headings only, the lists go back to being body text, and the note itself is not changed by one byte. Flip it back and every list node is exactly where it was.
+- **Two-way editing**: Add, rename, delete and rearrange nodes. Body text moves with its heading; write-back replaces only the affected line range and preserves surrounding content and formatting.
+- **Navigation**: Locate nodes in a visible note, including Reading view. Search results reveal and highlight matches; undo/redo also works in map-only mode.
+- **Note ⇄ map**: Switch within the same tab and optionally remember how each note opens.
+- **Flexible content**: Show headings by default or enable list nodes, with inline formatting, link labels and math.
+- **Styles and layout**: Customize shapes, colors, fonts, spacing, edges and branch direction, with global/per-note settings, live preview and Cancel.
+- **Convenient controls**: Keyboard shortcuts, smooth animation, per-note locking, zoom and position memory, and touch pinch/pan.
 
-## Three lines that will never be crossed
-
-1. **Never writes frontmatter, never writes tags.** Every setting and style lives in the
-   plugin's own `data.json`. Not one extra byte goes into your note.
-2. **Never rewrites a file wholesale.** Every write-back is a minimal replacement of a specific
-   line range; every byte outside that range stays identical — your hand-made blank lines,
-   indentation and line endings (LF / CRLF) are preserved exactly.
-3. **One action = one undo.** Open editors retain their native history. Pure maps use bounded,
-   session-only file history and refuse to undo over content changed elsewhere.
+One map action is one undo. Open editors use native history; map-only views use bounded session history and refuse to overwrite external changes.
 
 ## Install
 
@@ -54,7 +39,7 @@ shortcut to installing — build it, or take the release.
 Building from source:
 
 ```bash
-npm install
+npm ci
 npm run build     # type-check + bundle into main.js
 ```
 
@@ -68,28 +53,12 @@ Four ways to open the map:
 - A note's ⋯ menu → **打开为导图** (Open as mindmap): the current tab turns into a map in place
   (right-clicking a note in the file explorer offers the same item)
 
-Going back, a map's ⋯ menu has **打开为笔记** (Open as note), turning that same tab back into a
-note. The two are exact inverses; switching back and forth never opens an extra tab.
+Use **Open as note** in the map’s menu to return within the same tab, restoring the previous Reading/Editing mode.
 
-**After 打开为导图 you are in pure-map mode**: that tab no longer holds an editor, so clicking a
-node only selects it — the plugin will not dig the note out for you. To read the note and edit
-the map side by side, open the map in the sidebar or split the pane.
+- **Following maps**: Maps opened from the ribbon or command palette follow the active note. Enable **Always show one note** to keep them on one file.
+- **Per-note maps**: **Open as mindmap** converts the note’s tab in place and stays on that note. The opening form can be remembered; form changes do not enter tab history.
 
-Two kinds of map: the ribbon icon and the command palette open a **following** map, which draws
-whatever note is active; *Open as mindmap* produces a **pinned** map — it is that note's tab in a
-different shape, belongs to that note alone, stays put when you open other notes, and is still
-pinned after an Obsidian restart. Like a note tab, opening another note from inside it reuses the
-tab. Switching form (note ⇄ map) does not enter tab history: *Back* and *Forward* move between
-notes, never back to the note form of the same note.
-
-The main-area and sidebar forms can be open at the same time without interfering. The map
-follows the active note by default (including when you come back from a background tab or a
-collapsed sidebar). To keep it parked on one note, turn on **固定显示一篇笔记** (Always show one
-note) in the settings — once pinned, it stays on that note even across an Obsidian restart.
-
-If the map ever stops following, the command **跟随自检** (Follow self-check) reports the active
-note, the note the map is showing, both toggles, and a timestamped trail of every sync event the
-view received — and copies the whole thing to the clipboard.
+In map-only mode, a node click selects it without opening a note. To read prose alongside the map, use the sidebar or a split pane. Click-to-locate only scrolls a note that is already visible.
 
 ### How a note becomes a map
 
@@ -145,8 +114,26 @@ when a branch runs leftwards, `←` is the key that takes you *into* its childre
 
 ### Toolbar
 
-Fit to canvas · Zoom out · Zoom in · Layout (branches right / left / both sides) ·
-Expand all · Collapse all · Style settings.
+Fit to canvas · Zoom out · Zoom in · Expand all · Collapse all · Lock · Style settings.
+
+Layout direction (branches right / left / both sides) is in **Style settings**, with the same
+global and per-note saving, live preview and Cancel behavior as other styles.
+
+The lock remembers your manual choice for each note. A locked map still follows changes made
+in the note, and allows navigation, pan, zoom, fold/unfold and style changes. It cannot rename,
+add, delete or rearrange nodes, or undo/redo changes. **Reading view forces the map to lock**;
+returning to Editing view restores your manual choice. A visible Reading view of the same note
+takes precedence if that note is open in several panes. Converting a Reading tab to a pure map
+keeps its Reading mode; use *Open as note* to change the note's mode.
+
+Each note remembers its **zoom and viewing position**, including after a restart. The saved
+point stays centered when the viewport changes size. If changed content leaves that region
+empty, the map shows a nearby node at the saved zoom. Folded state remains session-only,
+so changed layouts are not guaranteed to put the same node in the same place.
+
+On touch screens, use two fingers to zoom and pan. A second finger cancels an unfinished node
+drag; finishing a gesture does not also click or edit a node. In a locked map, one finger can
+pan from a node as well as empty space; tapping still selects or locates it.
 
 *Branches on both sides* splits the root's branches into two balanced columns **by subtree size**.
 
@@ -169,29 +156,9 @@ cleaned up automatically when you rename, move or delete a note.
 
 ## Performance
 
-Every stage is designed for 1000 nodes: text measurement goes through an offscreen canvas
-(never a per-node `offsetWidth` read), node DOM is claimed and released rather than rebuilt, all
-edges are merged into a single `<path>`, pan and zoom write one container `transform`, and every
-event is delegated to the layer (17 DOM listeners for the whole view, independent of node count).
+Pan and zoom update a single container transform; edges share one path and node events are delegated. Animation is disabled above 250 visible nodes or when reduced motion is requested.
 
-The repository ships a 1000-node stress note (`bench/1000节点压力测试笔记.md` — 1000 nodes over
-8 levels: 6 heading levels plus 2 list levels, with long headings, inline markup, body text and
-code blocks), generated deterministically by `node scripts/gen-stress-note.mjs`.
-
-`npm test` runs the pure-computation part against that corpus (measured on Windows 11 / Node 22):
-
-| Stage | 1000 nodes |
-| --- | --- |
-| Parse (`parse`) | ≈ 0.6ms |
-| Reconcile (`reconcile`, keeps ids and collapsed state) | ≈ 0.3ms |
-| Layout (each of the three directions) | ≈ 0.2–0.3ms |
-| Opening a note end to end | ≈ 0.6–1.3ms |
-| Building 1000 edges (straight / diagonal / elbow) | ≈ 0.2–0.3ms |
-| Ten `Enter` presses in a row (each on the previous text) | ≈ 2ms each |
-
-The DOM half can only be measured for real inside Obsidian: open the stress note as a map and
-run the command **性能自检** (Performance self-check), which reports how many milliseconds
-layout, first render (rebuilding all DOM) and redraw actually took.
+The repository includes a [1000-node stress note](bench/1000节点压力测试笔记.md). Automated tests cover parsing, layout and editing; use **Performance self-check** in Obsidian to measure actual rendering, or **Follow self-check** to diagnose note-following issues.
 
 ## Known limitations
 
@@ -200,7 +167,6 @@ layout, first render (rebuilding all DOM) and redraw actually took.
 - Task list items `- [ ]` are treated as plain text; ordered lists are read fine but written
   back as `-`.
 - Multi-select (`Ctrl/⌘ + click`) is for batch deletion only, not batch drag.
-- All of the above are deliberately deferred to v2, not oversights.
 
 ## Development
 
@@ -210,10 +176,7 @@ npm run typecheck  # strict type-check
 npm test           # unit + integration tests
 ```
 
-The directory layering is a hard constraint: `core/` (parsing, serialisation, structural
-operations) and `layout/` (the layout algorithm) **must not import any Obsidian API** — they are
-pure functions with unit tests. Only `doc/DocumentBridge.ts` touches file I/O, and only `view/`
-touches the DOM.
+`core/` and `layout/` contain pure logic without Obsidian imports; `doc/` handles document I/O and note-view integration, `view/` manages map interaction, and `settings/` owns settings, styles and preferences.
 
 To install a dev build into a vault without copying three files by hand every round:
 
@@ -228,64 +191,37 @@ rather than creating a second copy with the same plugin id.
 
 Before publishing, run `npm test` and `npm run build`. Keep `manifest.json`,
 `package.json`, `package-lock.json` and `versions.json` in sync, then attach
-`main.js`, `manifest.json` and `styles.css` to the `1.3.3` GitHub release.
+`main.js`, `manifest.json` and `styles.css` to the `1.3.4` GitHub release.
 **The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
 
 ## What's new
 
+### v1.3.4
+
+- **Map locking**: Remember manual locks per note; Reading view forces locking. Locked maps prevent editing while still showing live note changes.
+- **Layout settings**: Move branch direction into Style settings, with global/per-note saving, live preview and Cancel.
+- **Viewport memory**: Restore each note’s zoom and position; show a nearby node if the saved region is empty.
+- **Touch improvements**: Add pinch zoom and two-finger pan, reduce drag conflicts and accidental clicks, and enlarge toolbar/fold touch targets.
+
 ### v1.3.3
 
-- **Undo/redo in map-only mode**: In 'Open as Mind Map' mode, use shortcuts or the pane menu without opening the note. Maps of the same file share session history.
-- **Search navigation and highlighting**: In 'Open as Mind Map' mode, opening an Obsidian search result reveals, centers and highlights its matching node. Body text and hidden lists show a highlighted excerpt, with a shortcut to the original note.
-- **Refined level colors**: six distinct, muted colors for light and dark themes, with softer borders.
-- **Synchronized animation**: nodes and edges move together; large maps and reduced-motion preferences disable animation.
-- **New defaults**: elbow branches, blue palette, animation on, strict line breaks off, and list nodes off. Existing explicit settings and per-note styles are preserved.
-
-Undo history lasts for the current session. Search highlights never alter notes and clear when the content changes. Use **View in note** for exact matches in hidden markup or math source.
+- Add map-only undo/redo and search-result navigation/highlighting; refine level colors and node/edge animation.
+- Update default styles and options while preserving existing settings and per-note styles.
 
 ### v1.3.2
 
-- **Remember how each note opens** (new setting, on by default): a note converted with
-  *Open as mindmap* opens as a mindmap next time; *Open as note* restores it, in the Reading /
-  Editing mode it had when converted. The record lives only in the plugin's own `data.json` and
-  never touches the note; it follows renames and moves and is cleaned up on delete.
-- **Two kinds of map, told apart**: the ribbon icon and the command palette open a following map
-  that tracks the active note; *Open as mindmap* produces a pinned map that belongs to one note,
-  stays put when other notes are opened, and is still pinned after a restart.
-- **Fixed: the map kept showing the previous note**. When switching notes the map now reads the
-  file from disk instead of an editor that has not loaded the new note yet, and follow decisions
-  use the file and tab carried by the event, so clicking the map itself can no longer switch it away.
-- From the file explorer, *Open as mindmap* converts the tab that already shows the note instead
-  of opening a second one.
-- Switching form (note ⇄ map) does not enter tab history; *Back* and *Forward* move between notes only.
-- 9 new unit tests, 524 in total.
+- Remember how each note opens, distinguish following and pinned maps, and fix stale content after switching notes.
+- Improve in-place conversion and tab history without opening duplicate tabs.
 
 ### v1.3.1
 
-- **Click-to-locate now works in Reading view**: heading and list nodes are resolved from their
-  source line and rendered-section range, so virtualized long notes, duplicate headings, inline
-  formatting and formulas still land on the correct rendered block. The visible block is
-  centred and highlighted without changing view mode or stealing focus.
-- **Inline math in nodes**: `$...$` expressions are rendered with Obsidian's MathJax engine,
-  with source fallback for invalid formulas and sizing that keeps complex formulas inside nodes.
-- 517 automated checks cover the pure logic and Obsidian-facing math integration.
+- Improve click-to-locate in Reading view and add inline math rendering.
 
 ### v1.3.0
 
-- **Chinese / English interface**: The interface now follows Obsidian's language — no setting,
-  no restart. English covers the whole UI: menus, commands, settings, the style window and every
-  notice. (Internal error messages from the pure-logic core stay Chinese.)
-- **Show list items as nodes** (new setting, on by default): turn it off for a headings-only map.
-  The option works at parse time, so moving a heading still carries its list body along — nothing
-  is lost, and flipping it back restores the list nodes. While off, operations that would push a
-  node past heading level 6 (where nothing visible could be written) are blocked with a notice.
-- **Colour by level** (new style option, off by default): each level gets its own colour for text
-  and border. The palette comes from Obsidian's built-in colours, so light and dark themes both
-  look right; list levels deeper than 6 cycle the palette. Works at the global and per-note
-  levels with live preview, and selection / hover / drop states stay clearly visible on top.
-- 12 new unit tests (490 in total).
+- Add Chinese/English UI, optional list nodes and level colors.
 
-Earlier changes are in the [Releases](../../releases) page.
+See [Releases](../../releases) for earlier versions.
 
 ## License
 

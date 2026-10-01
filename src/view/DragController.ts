@@ -208,7 +208,8 @@ export class DragController {
 
   /** Esc / 视图关闭：放弃这次拖拽，什么都不写。 */
   cancel(): void {
-    if (!this.active) return
+    // A second finger or a lock can arrive before the drag threshold is crossed.
+    this.dragged = false
     this.reset()
   }
 

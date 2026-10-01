@@ -77,6 +77,7 @@ export class DocumentBridge {
     private readonly app: App,
     private readonly onChange: (change: DocumentChange) => void,
     private readonly history = new FileHistory<TFile>(),
+    private readonly canWrite: (file: TFile) => boolean = () => true,
   ) {
     this.unsubscribeHistory = history.subscribe((file, text) => {
       if (this.file !== file) return
@@ -161,6 +162,7 @@ export class DocumentBridge {
     eol: '\n' | '\r\n',
     reveal?: number,
   ): Promise<void> {
+    this.assertWritable(file)
     const nextText = joinLines(applyPlanToLines(base, plan), eol)
     this.remember(file, hashText(nextText))
 
@@ -178,6 +180,7 @@ export class DocumentBridge {
     let before = ''
     let after = ''
     await this.app.vault.process(file, (data) => {
+      this.assertWritable(file)
       // An editor may have opened while the asynchronous file operation waited.
       if (this.editorFor(file)) throw new Error('笔记已在编辑器中打开，请重试')
       const current = splitLines(data)
@@ -197,6 +200,7 @@ export class DocumentBridge {
    */
   historyStep(file: TFile, direction: HistoryDirection): Promise<'ok' | 'empty' | 'conflict'> {
     return this.history.run(file, async () => {
+      this.assertWritable(file)
       const editor = this.editorFor(file)
       if (editor) {
         this.history.clear(file)
@@ -212,6 +216,7 @@ export class DocumentBridge {
       const replacement = direction === 'undo' ? entry.before : entry.after
       let conflict = false
       await this.app.vault.process(file, (data) => {
+        this.assertWritable(file)
         if (this.editorFor(file) || data !== expected) {
           conflict = true
           return data
@@ -443,6 +448,26 @@ export class DocumentBridge {
           leaf.getViewState().state?.['file'] === file.path) return view.editor
     }
     return null
+  }
+
+  /** A visible Reading view takes precedence over an editor of the same note. */
+  noteMode(file: TFile): 'source' | 'preview' | null {
+    let mode: 'source' | 'preview' | null = null
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const view = leaf.view
+      if (!(view instanceof MarkdownView) || view.file !== file || !view.containerEl.isShown()) continue
+      if (view.getMode() === 'preview') return 'preview'
+      mode = 'source'
+    }
+    return mode
+  }
+
+  isReading(file: TFile): boolean {
+    return this.noteMode(file) === 'preview'
+  }
+
+  private assertWritable(file: TFile): void {
+    if (!this.canWrite(file)) throw new Error('导图已锁定，本次修改已取消')
   }
 
   /**

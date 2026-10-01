@@ -4,11 +4,19 @@
  * 【只在容器上做一次 transform】——绝不逐节点改位置（第 2 章技术选型）。
  * 节点自身的 translate 是布局坐标，平移缩放只动它们的父层，两者互不干扰。
  *
- * 监听器一共 5 个，全挂在 viewport 上（pointerdown / pointermove / pointerup /
- * pointercancel / wheel），与节点数量无关。
+ * 指针、滚轮与手势后的点击都在 viewport 上处理，监听器数量与节点数量无关。
  */
 
 import type { Box } from '../layout/types'
+import { normalizeViewport, type ViewportState } from '../settings/ViewPreferences'
+
+interface CanvasHooks {
+  onUserChange?(): void
+  onGestureStart?(): void
+  panNodes?(): boolean
+}
+
+interface Point { x: number; y: number }
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 4
@@ -34,11 +42,17 @@ export class Canvas {
   private ty = 0
   private scale = 1
 
-  private dragging = false
+  private panPointer: number | null = null
+  private readonly touches = new Map<number, Point>()
+  private touchGesture = false
+  private suppressClickUntil = 0
   private lastX = 0
   private lastY = 0
+  private startX = 0
+  private startY = 0
   private width = 0
   private height = 0
+  private hiddenCenter: ViewportState | undefined
   private readonly observer: ResizeObserver
   private frame: number | null = null
   /** 「优雅动画」开着吗（M10）。只影响程序性定位，手动平移/缩放永远是即时的。 */
@@ -50,7 +64,7 @@ export class Canvas {
    * @param onResize 视口尺寸变化后的回调。视图刚打开时容器尺寸还是 0，
    *   「适应画布」得等这个回调来了才有意义。
    */
-  constructor(host: HTMLElement, private readonly onResize?: () => void) {
+  constructor(host: HTMLElement, private readonly onResize?: () => void, private readonly hooks: CanvasHooks = {}) {
     this.viewport = host.createDiv({ cls: 'om-viewport' })
     // 可聚焦：跳转到编辑器之后要把焦点收回来，M5 的快捷键也挂在这上面
     this.viewport.tabIndex = -1
@@ -61,25 +75,40 @@ export class Canvas {
       const rect = entries[0]?.contentRect
       if (!rect) return
       const changed = rect.width !== this.width || rect.height !== this.height
+      const center = this.snapshot() ?? this.hiddenCenter
       this.width = rect.width
       this.height = rect.height
+      if (changed && center && this.width > 0 && this.height > 0) {
+        this.tx = this.width / 2 - center.x * this.scale
+        this.ty = this.height / 2 - center.y * this.scale
+        this.applyNow(false)
+      }
+      this.hiddenCenter = this.width > 0 && this.height > 0 ? undefined : center
       if (changed) this.onResize?.()
     })
     this.observer.observe(this.viewport)
 
-    this.viewport.addEventListener('pointerdown', this.onPointerDown)
-    this.viewport.addEventListener('pointermove', this.onPointerMove)
-    this.viewport.addEventListener('pointerup', this.onPointerUp)
-    this.viewport.addEventListener('pointercancel', this.onPointerUp)
+    // Capture sees both fingers before node dragging can claim them.
+    this.viewport.addEventListener('pointerdown', this.onPointerDown, true)
+    this.viewport.addEventListener('pointermove', this.onPointerMove, true)
+    this.viewport.addEventListener('pointerup', this.onPointerUp, true)
+    this.viewport.addEventListener('pointercancel', this.onPointerUp, true)
+    this.viewport.addEventListener('lostpointercapture', this.onLostCapture)
+    this.viewport.addEventListener('click', this.onClick, true)
+    this.viewport.addEventListener('dblclick', this.onClick, true)
     this.viewport.addEventListener('wheel', this.onWheel, { passive: false })
   }
 
   destroy(): void {
     this.observer.disconnect()
-    this.viewport.removeEventListener('pointerdown', this.onPointerDown)
-    this.viewport.removeEventListener('pointermove', this.onPointerMove)
-    this.viewport.removeEventListener('pointerup', this.onPointerUp)
-    this.viewport.removeEventListener('pointercancel', this.onPointerUp)
+    this.cancelGesture()
+    this.viewport.removeEventListener('pointerdown', this.onPointerDown, true)
+    this.viewport.removeEventListener('pointermove', this.onPointerMove, true)
+    this.viewport.removeEventListener('pointerup', this.onPointerUp, true)
+    this.viewport.removeEventListener('pointercancel', this.onPointerUp, true)
+    this.viewport.removeEventListener('lostpointercapture', this.onLostCapture)
+    this.viewport.removeEventListener('click', this.onClick, true)
+    this.viewport.removeEventListener('dblclick', this.onClick, true)
     this.viewport.removeEventListener('wheel', this.onWheel)
     if (this.frame !== null) window.cancelAnimationFrame(this.frame)
   }
@@ -132,6 +161,34 @@ export class Canvas {
     return true
   }
 
+  snapshot(): ViewportState | undefined {
+    if (this.width <= 0 || this.height <= 0) return undefined
+    return { scale: this.scale, x: (this.width / 2 - this.tx) / this.scale,
+      y: (this.height / 2 - this.ty) / this.scale }
+  }
+
+  /** Restore without a fit-then-jump frame; moved/deleted content gets a visible fallback. */
+  restore(raw: ViewportState, boxes: Iterable<Box>): boolean {
+    const state = normalizeViewport(raw)
+    if (!state || this.width <= 0 || this.height <= 0) return false
+    const nodes = [...boxes]
+    if (!nodes.length) return false
+    this.scale = state.scale
+    this.tx = this.width / 2 - state.x * this.scale
+    this.ty = this.height / 2 - state.y * this.scale
+    const visible = nodes.some(box => box.x * this.scale + this.tx < this.width &&
+      (box.x + box.w) * this.scale + this.tx > 0 && box.y * this.scale + this.ty < this.height &&
+      (box.y + box.h) * this.scale + this.ty > 0)
+    if (!visible) {
+      const nearest = nodes.reduce((best, box) =>
+        distanceTo(box, state) < distanceTo(best, state) ? box : best)
+      this.tx = centerTranslate(nearest.x * this.scale, nearest.w * this.scale, this.width)
+      this.ty = centerTranslate(nearest.y * this.scale, nearest.h * this.scale, this.height)
+    }
+    this.applyNow(false)
+    return true
+  }
+
   /**
    * 视口在屏幕上的矩形。拖拽时【开始读一次就够】，一次拖拽内它不会变——
    * 逐帧读会白白触发强制重排（陷阱 5 的同类问题）。
@@ -172,7 +229,7 @@ export class Canvas {
       this.height,
       margin,
     )
-    if (dx !== 0 || dy !== 0) this.panBy(dx, dy)
+    if (dx !== 0 || dy !== 0) this.panBy(dx, dy, false)
   }
 
   zoomBy(factor: number): void {
@@ -181,6 +238,7 @@ export class Canvas {
 
   /** 以视口内某点为锚点缩放——鼠标底下的内容不动。 */
   zoomAt(factor: number, px: number, py: number): void {
+    if (!Number.isFinite(factor) || factor <= 0) return
     const next = clamp(this.scale * factor, MIN_SCALE, MAX_SCALE)
     if (next === this.scale) return
     const k = next / this.scale
@@ -188,44 +246,142 @@ export class Canvas {
     this.ty = py - (py - this.ty) * k
     this.scale = next
     this.apply()
+    this.hooks.onUserChange?.()
   }
 
-  panBy(dx: number, dy: number): void {
+  panBy(dx: number, dy: number, user = true): void {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return
     this.tx += dx
     this.ty += dy
     this.apply()
+    if (user) this.hooks.onUserChange?.()
+  }
+
+  cancelGesture(): void {
+    const ids = [...this.touches.keys()]
+    if (this.panPointer !== null) ids.push(this.panPointer)
+    if (this.touchGesture) this.suppressClickUntil = Date.now() + 500
+    this.touches.clear()
+    this.panPointer = null
+    this.touchGesture = false
+    for (const id of ids) this.release(id)
+    this.viewport.removeClass('is-panning')
   }
 
   // ── 事件 ────────────────────────────────────────────────────
 
   private readonly onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0 && e.button !== 1) return
-    // 点在节点上交给上层处理（M4 起要做选中与跳转）；
-    // 点在编辑框里必须原样放行，否则指针捕获会抢走文本选择和光标定位
-    if ((e.target as HTMLElement).closest('.om-node, .om-editor')) return
+    const target = e.target as HTMLElement
+    if (target.closest('.om-editor')) return
+    if (e.pointerType === 'touch') {
+      if (this.touches.size === 0) this.suppressClickUntil = 0
+      this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (this.touches.size >= 2) {
+        this.touchGesture = true
+        this.panPointer = null
+        this.hooks.onGestureStart?.()
+        for (const id of this.touches.keys()) this.viewport.setPointerCapture(id)
+        this.viewport.addClass('is-panning')
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+    }
+    if (target.closest('.om-node') && !(e.pointerType === 'touch' && this.hooks.panNodes?.())) return
+    if (this.panPointer !== null) return
     // 点空白也算「我在用导图」——键盘焦点收过来，否则快捷键要先点一下节点才生效
     this.focus()
-    this.dragging = true
+    this.panPointer = e.pointerId
     this.lastX = e.clientX
     this.lastY = e.clientY
-    this.viewport.setPointerCapture(e.pointerId)
-    this.viewport.addClass('is-panning')
+    this.startX = e.clientX
+    this.startY = e.clientY
+    // Preserve the original click target for a tap on a locked node or its toggle.
+    if (e.pointerType !== 'touch') {
+      this.viewport.setPointerCapture(e.pointerId)
+      this.viewport.addClass('is-panning')
+    }
   }
 
   private readonly onPointerMove = (e: PointerEvent): void => {
-    if (!this.dragging) return
+    if (this.touches.has(e.pointerId)) {
+      const before = [...this.touches.values()]
+      this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (this.touches.size >= 2) {
+        const after = [...this.touches.values()]
+        const a = before[0]!, b = before[1]!, c = after[0]!, d = after[1]!
+        const distance = Math.hypot(a.x - b.x, a.y - b.y)
+        const next = Math.hypot(c.x - d.x, c.y - d.y)
+        const rect = this.viewportRect()
+        if (distance > 0 && next > 0) this.zoomAt(next / distance,
+          (a.x + b.x) / 2 - rect.left, (a.y + b.y) / 2 - rect.top)
+        this.panBy((c.x + d.x - a.x - b.x) / 2, (c.y + d.y - a.y - b.y) / 2)
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+    }
+    if (this.panPointer !== e.pointerId) return
+    if (e.pointerType === 'touch' && !this.touchGesture) {
+      if (Math.hypot(e.clientX - this.startX, e.clientY - this.startY) < 6) return
+      this.touchGesture = true
+      this.viewport.setPointerCapture(e.pointerId)
+      this.viewport.addClass('is-panning')
+    }
     this.panBy(e.clientX - this.lastX, e.clientY - this.lastY)
     this.lastX = e.clientX
     this.lastY = e.clientY
   }
 
   private readonly onPointerUp = (e: PointerEvent): void => {
-    if (!this.dragging) return
-    this.dragging = false
-    if (this.viewport.hasPointerCapture(e.pointerId)) {
-      this.viewport.releasePointerCapture(e.pointerId)
+    if (e.type === 'pointercancel') {
+      if (!this.touches.has(e.pointerId) && this.panPointer !== e.pointerId) return
+      const handled = this.touchGesture
+      this.cancelGesture()
+      if (handled) e.stopPropagation()
+      return
     }
+    if (this.touches.has(e.pointerId)) {
+      this.touches.delete(e.pointerId)
+      if (this.panPointer === e.pointerId) this.panPointer = null
+      this.release(e.pointerId)
+      if (this.touchGesture) {
+        this.suppressClickUntil = Date.now() + 500
+        e.stopPropagation()
+        const remaining = [...this.touches.entries()][0]
+        this.panPointer = remaining?.[0] ?? null
+        if (remaining) {
+          this.lastX = remaining[1].x
+          this.lastY = remaining[1].y
+        } else {
+          this.touchGesture = false
+          this.viewport.removeClass('is-panning')
+        }
+        return
+      }
+    }
+    if (this.panPointer !== e.pointerId) return
+    this.panPointer = null
+    this.release(e.pointerId)
     this.viewport.removeClass('is-panning')
+  }
+
+  private readonly onLostCapture = (e: PointerEvent): void => {
+    if (e.target === this.viewport && (this.touches.has(e.pointerId) || this.panPointer === e.pointerId)) {
+      this.onPointerUp(e)
+    }
+  }
+
+  private readonly onClick = (e: MouseEvent): void => {
+    if (this.touchGesture || Date.now() < this.suppressClickUntil) {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+    }
+  }
+
+  private release(id: number): void {
+    if (this.viewport.hasPointerCapture(id)) this.viewport.releasePointerCapture(id)
   }
 
   private readonly onWheel = (e: WheelEvent): void => {
@@ -273,6 +429,10 @@ export class Canvas {
       transform: `translate(${this.tx}px, ${this.ty}px) scale(${this.scale})`,
     })
   }
+}
+
+function distanceTo(box: Box, point: Point): number {
+  return Math.hypot(box.x + box.w / 2 - point.x, box.y + box.h / 2 - point.y)
 }
 
 /**

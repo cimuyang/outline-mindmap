@@ -7,12 +7,13 @@
  * （改文件名后 key 失配、删笔记后配置越攒越多，陷阱 7）因此可以直接单测。
  */
 
-import { DEFAULT_LAYOUT, type BranchStyle } from '../layout/types'
+import { DEFAULT_LAYOUT, type BranchStyle, type LayoutDirection } from '../layout/types'
 
 export type NodeShape = 'rounded' | 'pill' | 'underline'
 export type ColorScheme = 'theme' | 'blue' | 'green' | 'warm'
 
 export interface MindmapStyle {
+  direction: LayoutDirection
   /** 主题间距 · 横向：父节点右边缘到子节点左边缘。 */
   hGap: number
   /** 主题间距 · 纵向：相邻兄弟子树之间。 */
@@ -38,6 +39,7 @@ const SCHEMES: readonly ColorScheme[] = ['theme', 'blue', 'green', 'warm']
 const BRANCHES: readonly BranchStyle[] = ['straight', 'curve', 'elbow']
 
 export const DEFAULT_STYLE: MindmapStyle = {
+  direction: DEFAULT_LAYOUT.direction,
   // 间距的默认值直接取布局层的，两处不会各写一个数字然后慢慢漂移
   hGap: DEFAULT_LAYOUT.hGap,
   vGap: DEFAULT_LAYOUT.vGap,
@@ -85,6 +87,7 @@ function pick<T extends string>(raw: unknown, allowed: readonly T[], fallback: T
 export function normalizeStyle(raw: unknown, base: MindmapStyle = DEFAULT_STYLE): MindmapStyle {
   const o = (raw ?? {}) as Record<string, unknown>
   return {
+    direction: pick(o['direction'], ['right', 'left', 'both'], base.direction),
     hGap: num(o['hGap'], base.hGap, STYLE_LIMITS.hGap),
     vGap: num(o['vGap'], base.vGap, STYLE_LIMITS.vGap),
     shape: pick(o['shape'], SHAPES, base.shape),
@@ -111,6 +114,7 @@ export function normalizeStyleData(raw: unknown): StyleData {
 
 export function sameStyle(a: MindmapStyle, b: MindmapStyle): boolean {
   return (
+    a.direction === b.direction &&
     a.hGap === b.hGap &&
     a.vGap === b.vGap &&
     a.shape === b.shape &&

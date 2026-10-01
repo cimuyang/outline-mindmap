@@ -12,16 +12,23 @@ export const finishRenderMath = vi.fn(async (): Promise<void> => {})
 
 export class TFile {
   constructor(public path = 'test.md') {}
+  get extension(): string { return this.path.split('.').at(-1) ?? '' }
+  get basename(): string { return this.path.split('/').at(-1)!.replace(/\.[^.]+$/, '') }
 }
 export class Component {
   cleanups: (() => void)[] = []
   register(fn: () => void): void { this.cleanups.push(fn) }
+  registerDomEvent(el: any, type: string, callback: any, capture?: boolean): void {
+    el.addEventListener(type, callback, capture)
+    this.register(() => el.removeEventListener(type, callback, capture))
+  }
   registerEvent(_event: unknown): void {}
   unload(): void { for (const fn of this.cleanups.reverse()) fn() }
 }
 export class ItemView extends Component {
   app: any
   contentEl = new FakeElement()
+  containerEl = new FakeElement()
   constructor(public leaf: any) { super(); this.app = leaf.app }
   getState(): Record<string, unknown> { return {} }
   async setState(_state: unknown, _result: unknown): Promise<void> {}

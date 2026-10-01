@@ -7,10 +7,8 @@
  * - 【事件委托】。整条工具栏只挂 2 个监听器，按钮做什么写在 data-action 上。
  */
 
-import { Menu, setIcon } from 'obsidian'
+import { setIcon } from 'obsidian'
 import { t, type MsgKey } from '../i18n'
-import { LAYOUT_DIRECTIONS } from '../layout'
-import type { LayoutDirection } from '../layout/types'
 
 /** 工具栏需要的视图能力。视图不把自己整个交出去，只交出这几件事。 */
 export interface ToolbarHooks {
@@ -18,8 +16,7 @@ export interface ToolbarHooks {
   zoom(factor: number): void
   expandAll(): void
   collapseAll(): void
-  direction(): LayoutDirection
-  setDirection(dir: LayoutDirection): void
+  toggleLock(): void
   /** 打开样式窗口（M8）。 */
   openStyle(): void
   /** 每个动作之后把键盘焦点还给画布。 */
@@ -28,16 +25,6 @@ export interface ToolbarHooks {
 
 /** 一次点击的缩放倍率。与滚轮缩放的手感无关，按钮要「一下就看得出变化」。 */
 const ZOOM_STEP = 1.25
-
-/**
- * 布局方向的文案 key。写成 Record 而不是数组：往 LayoutDirection 里加一项时，
- * 忘了补名字会直接编译不过，不会悄悄漏一项。
- */
-const DIRECTION_LABELS: Record<LayoutDirection, MsgKey> = {
-  right: 'direction.right',
-  left: 'direction.left',
-  both: 'direction.both',
-}
 
 interface ButtonSpec {
   action: string
@@ -49,14 +36,15 @@ const BUTTONS: readonly ButtonSpec[] = [
   { action: 'fit', icon: 'maximize', label: 'tool.fit' },
   { action: 'zoom-out', icon: 'zoom-out', label: 'tool.zoomOut' },
   { action: 'zoom-in', icon: 'zoom-in', label: 'tool.zoomIn' },
-  { action: 'layout', icon: 'git-branch', label: 'tool.layout' },
   { action: 'expand', icon: 'chevrons-up-down', label: 'tool.expand' },
   { action: 'collapse', icon: 'chevrons-down-up', label: 'tool.collapse' },
+  { action: 'lock', icon: 'lock-open', label: 'tool.lock' },
   { action: 'style', icon: 'palette', label: 'tool.style' },
 ]
 
 export class Toolbar {
   readonly el: HTMLElement
+  private lock!: HTMLButtonElement
 
   constructor(
     host: HTMLElement,
@@ -76,12 +64,22 @@ export class Toolbar {
   }
 
   private addButton(spec: ButtonSpec): HTMLElement {
-    const btn = this.el.createDiv({ cls: 'om-tool' })
+    const btn = this.el.createEl('button', { cls: 'om-tool' })
+    btn.type = 'button'
+    if (spec.action === 'lock') this.lock = btn
     btn.dataset['action'] = spec.action
     // Obsidian 用 aria-label 显示气泡提示，顺便也是无障碍名字
     btn.setAttribute('aria-label', t(spec.label))
     setIcon(btn, spec.icon)
     return btn
+  }
+
+  setLocked(locked: boolean, forced: boolean, available: boolean): void {
+    setIcon(this.lock, locked ? 'lock' : 'lock-open')
+    this.lock.disabled = forced || !available
+    this.lock.toggleClass('is-active', locked)
+    this.lock.setAttribute('aria-pressed', String(locked))
+    this.lock.setAttribute('aria-label', t(forced ? 'tool.readingLock' : locked ? 'tool.unlock' : 'tool.lock'))
   }
 
   /** 按下就阻止默认行为：否则浏览器会把焦点挪到按钮上，快捷键随即失效。 */
@@ -109,8 +107,8 @@ export class Toolbar {
       case 'collapse':
         this.hooks.collapseAll()
         break
-      case 'layout':
-        this.openLayoutMenu(e)
+      case 'lock':
+        if (!this.lock.disabled) this.hooks.toggleLock()
         break
       case 'style':
         // 这里【不】走 afterAction：焦点得留给刚弹出来的窗口，
@@ -123,20 +121,4 @@ export class Toolbar {
     this.hooks.afterAction()
   }
 
-  private openLayoutMenu(e: MouseEvent): void {
-    const menu = new Menu()
-    const current = this.hooks.direction()
-    for (const dir of LAYOUT_DIRECTIONS) {
-      menu.addItem((item) =>
-        item
-          .setTitle(t(DIRECTION_LABELS[dir]))
-          .setChecked(dir === current)
-          .onClick(() => {
-            this.hooks.setDirection(dir)
-            this.hooks.afterAction()
-          }),
-      )
-    }
-    menu.showAtMouseEvent(e)
-  }
 }

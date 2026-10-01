@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { MindmapView } from '../src/view/MindmapView'
 import { parse } from '../src/core/parser'
 import { FakeElement, findByClass, textOf } from './fake-dom'
+import { ViewPreferences } from '../src/settings/ViewPreferences'
 
 function setup(content = '# Parent\n## word\nbody word\n# Other') {
-  const host: any = { settings: { listNodes: true, strictLineBreak: false } }
+  const host: any = { settings: { listNodes: true, strictLineBreak: false },
+    preferences: new ViewPreferences({}, () => {}) }
   const view: any = new MindmapView({ app: {} } as any, host)
   view.ready = true
   view.file = { path: 'note.md' }
@@ -13,8 +15,10 @@ function setup(content = '# Parent\n## word\nbody word\n# Other') {
   view.nodeRenderer = { setSearch: vi.fn() }
   view.editor = { active: false, stop: vi.fn() }
   view.drag = { active: false, cancel: vi.fn() }
-  view.canvas = { centerOn: vi.fn(() => true), focus: vi.fn(), fit: vi.fn(() => true) }
-  view.bridge = { setFile: vi.fn(), historyStep: vi.fn(async () => 'ok') }
+  view.canvas = { centerOn: vi.fn(() => true), focus: vi.fn(), fit: vi.fn(() => true),
+    cancelGesture: vi.fn(), snapshot: vi.fn() }
+  view.toolbar = { setLocked: vi.fn() }
+  view.bridge = { setFile: vi.fn(), historyStep: vi.fn(async () => 'ok'), noteMode: () => null }
   view.resolveStyle = vi.fn()
   view.draw = vi.fn(() => {
     view.boxes = new Map([...view.tree?.byId.keys() ?? []].map((id: string) => [id, { x: 1, y: 2, w: 3, h: 4 }]))

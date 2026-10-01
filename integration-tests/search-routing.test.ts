@@ -34,6 +34,21 @@ async function setup() {
 }
 
 describe('native search -> remembered mindmap routing', () => {
+  it('passes Reading mode into the pure map independently of remembered open preferences', async () => {
+    const s = await setup()
+    s.plugin.settings.rememberOpenAs = false
+    s.plugin.openAs.forget(s.file.path)
+    s.markdown.getMode = () => 'preview'
+    await s.plugin.openAsMindmap(s.file, s.leaf)
+    expect(s.leaf.setViewState).toHaveBeenCalledWith(expect.objectContaining({
+      state: { file: s.file.path, pinned: true, noteMode: 'preview' },
+    }), undefined)
+    expect(s.leaf.view.getState().noteMode).toBe('preview')
+    await s.plugin.openAsNote(s.leaf, s.file, 'preview')
+    expect(s.leaf.setViewState).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: 'markdown', state: { file: s.file.path, mode: 'preview' },
+    }), undefined)
+  })
   it('retains search matches that MarkdownView does not return from getEphemeralState', async () => {
     const s = await setup()
     s.leaf.setEphemeralState(s.state)

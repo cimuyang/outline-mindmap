@@ -12,7 +12,7 @@
 
 import { Modal, Setting, type App } from 'obsidian'
 import { t, type MsgKey } from '../i18n'
-import type { BranchStyle } from '../layout/types'
+import type { BranchStyle, LayoutDirection } from '../layout/types'
 import {
   STYLE_LIMITS,
   type ColorScheme,
@@ -25,6 +25,10 @@ const SHAPE_LABELS: Record<NodeShape, MsgKey> = {
   rounded: 'shape.rounded',
   pill: 'shape.pill',
   underline: 'shape.underline',
+}
+
+const DIRECTION_LABELS: Record<LayoutDirection, MsgKey> = {
+  right: 'direction.right', left: 'direction.left', both: 'direction.both',
 }
 
 const BRANCH_LABELS: Record<BranchStyle, MsgKey> = {
@@ -117,6 +121,11 @@ export class StyleModal extends Modal {
   }
 
   private buildControls(host: HTMLElement): void {
+    new Setting(host).setName(t('tool.layout')).addDropdown((d) => {
+      for (const [value, key] of Object.entries(DIRECTION_LABELS)) d.addOption(value, t(key))
+      d.setValue(this.draft.direction).onChange((v) => this.update({ direction: v as LayoutDirection }))
+    })
+
     new Setting(host)
       .setName(t('style.hGap'))
       .setDesc(t('style.hGapDesc'))

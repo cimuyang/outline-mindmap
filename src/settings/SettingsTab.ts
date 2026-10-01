@@ -8,7 +8,8 @@ import { PluginSettingTab, Setting, type App, type Plugin, type TFile, type Work
 import { t, type MsgKey } from '../i18n'
 import type { FileHistory } from '../doc/FileHistory'
 import type { SearchState } from '../view/search'
-import { normalizeOpenAsData, type OpenAsData } from './OpenAsStore'
+import { normalizeOpenAsData, type NoteMode, type OpenAsData } from './OpenAsStore'
+import { normalizeViewPreferences, type ViewPreferenceData, type ViewPreferences } from './ViewPreferences'
 import { defaultStyleData, normalizeStyleData, type StyleData, type StyleStore } from './StyleStore'
 
 export interface MindmapSettings {
@@ -28,6 +29,7 @@ export interface MindmapSettings {
   styles: StyleData
   /** 要以导图打开的笔记。运行时由 OpenAsStore 就地读写这一份对象。 */
   openAs: OpenAsData
+  views: ViewPreferenceData
 }
 
 export const DEFAULT_SETTINGS: MindmapSettings = {
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
   rememberOpenAs: true,
   styles: defaultStyleData(),
   openAs: {},
+  views: {},
 }
 
 /** data.json 里读到的东西 → 一份合法设置。缺字段、类型不对、超范围的一律收拢。 */
@@ -55,6 +58,7 @@ export function normalizeSettings(raw: unknown): MindmapSettings {
     rememberOpenAs: bool('rememberOpenAs', DEFAULT_SETTINGS.rememberOpenAs),
     styles: normalizeStyleData(o['styles']),
     openAs: normalizeOpenAsData(o['openAs']),
+    views: normalizeViewPreferences(o['views']),
   }
 }
 
@@ -67,12 +71,13 @@ export interface MindmapHost {
   readonly fileHistory: FileHistory<TFile>
   readonly settings: MindmapSettings
   readonly styles: StyleStore
+  readonly preferences: ViewPreferences
   saveSettings(): Promise<void>
   /** 解析类设置变了（如「把列表项显示为节点」）：让所有导图按新规则重新解析当前笔记。 */
   reloadMindmaps(): void
   /** 导图这一侧的「打开为笔记」：同一个叶子就地变回 Markdown，并忘掉「以导图打开」的记忆。 */
-  openAsNote(leaf: WorkspaceLeaf, file: TFile): Promise<void>
-  openSearchResult(leaf: WorkspaceLeaf, file: TFile, state: SearchState): Promise<void>
+  openAsNote(leaf: WorkspaceLeaf, file: TFile, mode?: NoteMode): Promise<void>
+  openSearchResult(leaf: WorkspaceLeaf, file: TFile, state: SearchState, mode?: NoteMode): Promise<void>
 }
 
 export class MindmapSettingTab extends PluginSettingTab {

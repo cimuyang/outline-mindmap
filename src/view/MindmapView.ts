@@ -14,6 +14,7 @@
 import {
   FileView,
   ItemView,
+  MarkdownView,
   Notice,
   loadMathJax,
   type Menu,
@@ -54,6 +55,8 @@ import type { HistoryDirection } from '../doc/FileHistory'
 import type { MindmapHost } from '../settings/SettingsTab'
 import { StyleModal } from '../settings/StyleModal'
 import { DEFAULT_STYLE, type MindmapStyle } from '../settings/StyleStore'
+import type { NoteMode } from '../settings/OpenAsStore'
+import type { ViewportState } from '../settings/ViewPreferences'
 import { t } from '../i18n'
 import { Canvas } from './Canvas'
 import { Connectors } from './Connectors'
@@ -102,11 +105,20 @@ export class MindmapView extends ItemView {
   private font: FontSpec | null = null
   private boxes: LayoutResult = new Map()
   private bounds: Box = { x: 0, y: 0, w: 0, h: 0 }
-  /** 布局方向（M9：向右 / 向左 / 两侧）。工具栏的菜单按 LAYOUT_DIRECTIONS 生成。 */
+  /** 布局方向：与其他样式一样由单篇 / 全局配置解析。 */
   private direction: LayoutDirection = DEFAULT_LAYOUT.direction
   /** 当前笔记生效的样式（M8）：预览 > 单篇 > 全局，由 StyleStore 裁定。 */
   private style: MindmapStyle = DEFAULT_STYLE
   private unsubscribeStyle: (() => void) | null = null
+  private unsubscribePreferences: (() => void) | null = null
+  private initialViewport: ViewportState | undefined
+  private styleViewport: ViewportState | undefined
+  private previewingStyle = false
+  private noteMode: NoteMode = 'source'
+  private locked = false
+  private forcedLock = false
+  private modeObserver: MutationObserver | null = null
+  private modeContainers: HTMLElement[] = []
   /**
    * 选中集合。Ctrl+左键可多选（M6），用于批量删除。
    * 【批量移动推迟到 v2】（第 6 章）——拖拽永远只搬 `focusId` 那一棵子树。
@@ -127,7 +139,7 @@ export class MindmapView extends ItemView {
   private searchFocusId: string | null = null
   private motion!: LayoutMotion
   private reducedMotion: MediaQueryList | null = null
-  /** 换一篇笔记后的第一次绘制要自动适应画布，之后不再动用户的视野。 */
+  /** 首次绘制恢复记忆视野；没有记忆时适应画布。尺寸为零时延后。 */
   private needsFit = true
   /** onOpen 是否已经把各个部件建起来了。setState 可能比它先到。 */
   private ready = false
@@ -230,7 +242,7 @@ export class MindmapView extends ItemView {
     const open = this.searchBar.createEl('button', { text: t('search.openNote') })
     open.addEventListener('click', () => {
       const file = this.file
-      if (file) void this.host.openSearchResult(this.leaf, file, request.state).catch(err => this.report(err))
+      if (file) void this.host.openSearchResult(this.leaf, file, request.state, this.noteMode).catch(err => this.report(err))
     })
     const close = this.searchBar.createEl('button', { text: t('search.clear') })
     close.addEventListener('click', () => { this.clearSearch(); this.draw(); this.canvas.focus() })
@@ -263,8 +275,75 @@ export class MindmapView extends ItemView {
   }
 
   private resizeCanvas(): void {
-    if (this.needsFit && this.canvas.fit(this.bounds)) this.needsFit = false
+    this.initializeViewport()
     this.focusSearch()
+  }
+
+  private initializeViewport(): void {
+    if (!this.needsFit) return
+    const restored = this.initialViewport
+      ? this.canvas.restore(this.initialViewport, this.boxes.values()) : this.canvas.fit(this.bounds)
+    if (restored) {
+      this.needsFit = false
+      this.initialViewport = undefined
+    }
+  }
+
+  private rememberViewport(): void {
+    if (!this.file || this.needsFit || !this.boxes.size) return
+    const viewport = this.canvas.snapshot()
+    if (viewport) this.host.preferences.rememberViewport(this.file.path, viewport)
+  }
+
+  private canWriteFile(file: TFile): boolean {
+    return !this.host.preferences.isLocked(file.path) && !this.bridge.isReading(file) &&
+      !(this.file === file && this.noteMode === 'preview')
+  }
+
+  private canEdit(): boolean {
+    this.syncLock()
+    return !!this.file && !this.locked
+  }
+
+  private syncLock(force = false): void {
+    const mode = this.file ? this.bridge.noteMode(this.file) : null
+    if (mode) this.noteMode = mode
+    const forced = !!this.file && this.noteMode === 'preview'
+    const locked = forced || (!!this.file && this.host.preferences.isLocked(this.file.path))
+    const changed = locked !== this.locked || forced !== this.forcedLock
+    this.locked = locked
+    this.forcedLock = forced
+    if (locked && changed) {
+      this.drag.cancel()
+      this.cancelSession()
+      this.flushPending()
+    }
+    if (changed || force) {
+      this.contentEl.toggleClass('is-locked', locked)
+      this.toolbar.setLocked(locked, forced, !!this.file)
+    }
+  }
+
+  private toggleLock(): void {
+    this.syncLock()
+    if (this.file && !this.forcedLock) this.host.preferences.setLocked(this.file.path, !this.locked)
+  }
+
+  /** Mode toggles can keep the same file/leaf; observe their public DOM and query getMode(). */
+  private observeNoteMode(): void {
+    if (typeof MutationObserver === 'undefined') return
+    const containers = this.app.workspace.getLeavesOfType('markdown')
+      .map(leaf => leaf.view)
+      .filter((view): view is MarkdownView => view instanceof MarkdownView && view.file === this.file)
+      .map(view => view.contentEl)
+    if (containers.length === this.modeContainers.length &&
+        containers.every((el, index) => el === this.modeContainers[index])) return
+    this.modeObserver?.disconnect()
+    this.modeContainers = containers
+    this.modeObserver = new MutationObserver(() => this.syncLock())
+    for (const el of containers) this.modeObserver.observe(el, {
+      attributes: true, attributeFilter: ['class', 'style'], childList: true, subtree: true,
+    })
   }
 
   /**
@@ -274,14 +353,19 @@ export class MindmapView extends ItemView {
    * 可能已经不是它了）；二是重启 Obsidian 后导图还停在原来那篇上。
    */
   override getState(): Record<string, unknown> {
-    return { ...super.getState(), file: this.file?.path ?? null, pinned: this.pinned }
+    return { ...super.getState(), file: this.file?.path ?? null, pinned: this.pinned, noteMode: this.noteMode }
   }
 
   override async setState(state: unknown, result: ViewStateResult): Promise<void> {
     await super.setState(state, result)
-    const { file: path, pinned } = (state as { file?: unknown; pinned?: unknown } | null) ?? {}
+    const { file: path, pinned, noteMode } =
+      (state as { file?: unknown; pinned?: unknown; noteMode?: unknown } | null) ?? {}
     if (typeof path !== 'string') return
     this.setPinned(pinned === true)
+    if (this.pinned || !this.ready || this.file?.path === path) {
+      this.noteMode = noteMode === 'preview' ||
+        (noteMode === undefined && this.host.settings.openAs?.[path]?.noteMode === 'preview') ? 'preview' : 'source'
+    }
     // setState 早于 onOpen = 视图正在被创建（换形态 / 恢复工作区）。showFile 要用
     // onOpen 里才建起来的 bridge，所以先记下来，等 onOpen 收尾时按取舍规则认领。
     if (!this.ready) {
@@ -294,6 +378,7 @@ export class MindmapView extends ItemView {
     // 保存 / 恢复、叶子被搬动、Obsidian 自己回放视图状态时，送来的都是【存档里那一篇】。
     // 无条件采信就会把导图硬拽回上一篇，而且此后没有任何事件来纠正它。钉住的则正好该照办。
     await this.showRestored(path)
+    this.syncLock(true)
   }
 
   /**
@@ -351,10 +436,10 @@ export class MindmapView extends ItemView {
     const file = this.file
     if (!file) return
     menu.addItem(item => item.setTitle(t('menu.undo')).setIcon('undo-2')
-      .setDisabled(!!this.historyBusy || !!this.session)
+      .setDisabled(!this.canEdit() || !!this.historyBusy || !!this.session)
       .onClick(() => void this.stepHistory('undo')))
     menu.addItem(item => item.setTitle(t('menu.redo')).setIcon('redo-2')
-      .setDisabled(!!this.historyBusy || !!this.session)
+      .setDisabled(!this.canEdit() || !!this.historyBusy || !!this.session)
       .onClick(() => void this.stepHistory('redo')))
     menu.addItem((item) =>
       item
@@ -362,7 +447,7 @@ export class MindmapView extends ItemView {
         .setIcon('file-text')
         // 就地换形态：同一个叶子从导图变回 Markdown，不另开标签页。逻辑在 main.ts，
         // 因为它还要忘掉「以导图打开」的记忆，而记忆归插件管。
-        .onClick(() => void this.host.openAsNote(this.leaf, file)),
+        .onClick(() => void this.host.openAsNote(this.leaf, file, this.noteMode)),
     )
   }
 
@@ -395,7 +480,16 @@ export class MindmapView extends ItemView {
     // 【容器 resize 只重算视口，不自动重排】（M7 交付物）：Canvas 自己缓存新的宽高，
     // 这里除了「还没适应过画布」的那一次之外什么都不做——侧边栏拖宽拖窄是连续事件，
     // 每一帧都重新布局会卡，而且会把用户调好的缩放比例冲掉。
-    this.canvas = new Canvas(host, () => this.resizeCanvas())
+    this.canvas = new Canvas(host, () => this.resizeCanvas(), {
+      onUserChange: () => this.rememberViewport(),
+      onGestureStart: () => {
+        this.motion.finish()
+        this.drag.cancel()
+        this.cancelSession()
+        this.flushPending()
+      },
+      panNodes: () => { this.syncLock(); return this.locked },
+    })
     this.empty = host.createDiv({ cls: 'om-empty', text: t('view.empty') })
     this.searchBar = host.createDiv({ cls: 'om-search-bar is-hidden' })
 
@@ -405,8 +499,7 @@ export class MindmapView extends ItemView {
       zoom: (factor) => this.canvas.zoomBy(factor),
       expandAll: () => this.setAllCollapsed(false),
       collapseAll: () => this.setAllCollapsed(true),
-      direction: () => this.direction,
-      setDirection: (dir) => this.setDirection(dir),
+      toggleLock: () => this.toggleLock(),
       openStyle: () => this.openStyle(),
       afterAction: () => this.canvas.focus(),
     })
@@ -428,7 +521,7 @@ export class MindmapView extends ItemView {
       tree: () => this.tree,
       boxes: () => this.boxes,
       order: () => this.order,
-      enabled: () => !this.editor.active && this.session === null && this.tree !== null && !this.historyBusy,
+      enabled: () => this.canEdit() && !this.editor.active && this.session === null && this.tree !== null && !this.historyBusy,
       onDrop: this.onDrop,
       onVisual: (dragging, into) => this.nodeRenderer.setDragVisual(dragging, into),
     })
@@ -439,33 +532,53 @@ export class MindmapView extends ItemView {
     this.registerDomEvent(this.canvas.viewport, 'keydown', this.onKeyDown)
     this.registerDomEvent(this.canvas.viewport, 'pointerdown', () => this.motion.finish(), true)
 
-    this.bridge = new DocumentBridge(this.app, this.onDocumentChange, this.host.fileHistory)
+    this.bridge = new DocumentBridge(this.app, this.onDocumentChange, this.host.fileHistory,
+      file => this.canWriteFile(file))
     // 交给 this（ItemView 也是 Component）托管，视图关闭时监听自动解绑
     this.bridge.start(this)
+    this.unsubscribePreferences = this.host.preferences.subscribe(() => this.syncLock(true))
+    this.syncLock(true)
 
     // 样式变了就重绘。样式窗口拖滑块时也走这条 → 实时预览（M8）。
     // 变的可能是别篇笔记的单篇样式，跟自己无关时 resolveStyle 返回 false，一帧都不浪费。
     this.unsubscribeStyle = this.host.styles.subscribe(() => {
-      if (this.resolveStyle()) this.draw()
+      this.styleChanged()
     })
     this.resolveStyle()
 
     // 【用事件自带的载荷判定】，不回头问 getActiveFile()：活动叶子不是笔记（比如导图自己）时，
     // Obsidian 会把「活动笔记」回退成别的标签页里最近活动的那篇，点一下导图就可能把图切走。
     this.registerEvent(
-      this.app.workspace.on('file-open', (file) => void this.syncActiveFile(false, 'file-open', file)),
+      this.app.workspace.on('file-open', (file) => {
+        this.observeNoteMode()
+        this.syncLock()
+        void this.syncActiveFile(false, 'file-open', file)
+      }),
     )
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', (leaf) => {
+        this.observeNoteMode()
+        this.syncLock()
         const view = leaf?.view
         void this.syncActiveFile(false, 'leaf-change', view instanceof FileView ? view.file : null)
       }),
     )
+    this.registerEvent(this.app.workspace.on('layout-change', () => {
+      this.observeNoteMode()
+      this.syncLock()
+    }))
     // 正在显示的这篇被删了。syncActiveFile 现在会忽略瞬时的「没有活动笔记」，
     // 所以这一路必须显式收尾，否则屏幕上会留着一张已经不存在的笔记的导图。
     this.registerEvent(
       this.app.vault.on('delete', (f) => {
-        if (this.file && f.path === this.file.path) void this.syncActiveFile(true, 'delete')
+        if (!this.file || (this.file.path !== f.path && !this.file.path.startsWith(`${f.path}/`))) return
+        this.adoptFile(null)
+        this.draw()
+        const active = this.activeMarkdownFile()
+        if (!this.pinned && !this.host.settings.lockFile && active &&
+            active.path !== f.path && !active.path.startsWith(`${f.path}/`)) {
+          void this.syncActiveFile(false, 'delete', active)
+        }
       }),
     )
     this.registerEvent(
@@ -488,6 +601,12 @@ export class MindmapView extends ItemView {
   }
 
   override async onClose(): Promise<void> {
+    this.modeObserver?.disconnect()
+    this.modeObserver = null
+    this.modeContainers = []
+    this.unsubscribePreferences?.()
+    this.unsubscribePreferences = null
+    this.host.preferences.flush()
     this.motion?.reset()
     this.clearSearch()
     // 关视图时未提交的编辑一律作废：这时候再往文件里写字，用户根本看不见
@@ -577,7 +696,11 @@ export class MindmapView extends ItemView {
    * 打开笔记时的那次自动适应不带动画，见 draw() 末尾。
    */
   fitToScreen(): void {
-    this.canvas.fit(this.bounds, true)
+    if (this.canvas.fit(this.bounds, true)) {
+      this.needsFit = false
+      this.initialViewport = undefined
+      this.rememberViewport()
+    }
   }
 
   /** 展开 / 折叠全部（M7 工具栏）。只有有子节点的节点需要改。 */
@@ -598,6 +721,7 @@ export class MindmapView extends ItemView {
     // 视野跟着一起展开 / 收起（M10）。有主选中就跟着它那一支，
     // 没有就把整张图摆正中——否则「折叠全部」之后地图缩成一小坨躲在角落里
     if (!this.centerSubtree(this.focusId)) this.canvas.centerOn(this.bounds, true)
+    this.rememberViewport()
   }
 
   /**
@@ -627,6 +751,7 @@ export class MindmapView extends ItemView {
     node.collapsed = collapsed
     this.draw()
     this.centerSubtree(node.id)
+    this.rememberViewport()
   }
 
   /**
@@ -650,7 +775,31 @@ export class MindmapView extends ItemView {
     // 字号缩放变了 → 之前量出来的每一个宽高都作废
     if (changed && prev.fontScale !== next.fontScale) this.font = null
     this.style = next
+    this.direction = next.direction
     return changed
+  }
+
+  private styleChanged(): void {
+    const preview = this.host.styles.previewPath() === (this.file?.path ?? null)
+    const current = !this.needsFit && this.boxes.size ? this.canvas.snapshot() : undefined
+    if (preview && !this.previewingStyle) {
+      this.styleViewport = current
+      this.previewingStyle = true
+    }
+    // Reuse the pre-preview anchor throughout the draft and on Cancel. Coordinates
+    // valid in the new layout stay put; otherwise restore chooses a visible fallback.
+    const anchor = this.previewingStyle ? this.styleViewport : current
+    if (this.resolveStyle()) {
+      this.draw()
+      if (anchor && this.canvas.restore(anchor, this.boxes.values())) {
+        const restored = this.canvas.snapshot()
+        if (restored && current && (restored.x !== current.x || restored.y !== current.y)) this.motion.finish()
+      }
+    }
+    if (!preview) {
+      this.previewingStyle = false
+      this.styleViewport = undefined
+    }
   }
 
   /** 打开样式窗口（M8）。没有笔记时窗口里只有「应用全局设置」可按。 */
@@ -671,14 +820,6 @@ export class MindmapView extends ItemView {
     }
   }
 
-  /** 切换布局方向。切完自动适应画布（M7 交付物）。 */
-  private setDirection(dir: LayoutDirection): void {
-    if (this.direction === dir) return
-    this.direction = dir
-    this.draw()
-    this.fitToScreen()
-  }
-
   // ── 数据 ────────────────────────────────────────────────────
 
   /**
@@ -688,10 +829,16 @@ export class MindmapView extends ItemView {
    * 只改了一边，就会出现「跟着活动笔记切换是干净的、手动指名切换却残留上一篇」这种鬼故事。
    */
   private adoptFile(next: TFile | null): void {
+    this.canvas.cancelGesture()
+    this.drag.cancel()
     this.motion?.reset()
     if (this.search?.path !== next?.path) this.clearSearch()
     this.cancelSession()
     this.file = next
+    this.styleViewport = undefined
+    this.previewingStyle = false
+    if (!this.pinned) this.noteMode = 'source'
+    this.initialViewport = next ? this.host.preferences.viewportFor(next.path) : undefined
     this.tree = null // 切换笔记即重置折叠态（第 4.5 节的 v1 决策）
     this.setSelection(null)
     this.pendingText = null
@@ -699,6 +846,8 @@ export class MindmapView extends ItemView {
     this.bridge.setFile(next)
     // 换笔记就换样式：这一篇可能有自己的单篇样式（M8）
     this.resolveStyle()
+    this.observeNoteMode()
+    this.syncLock(true)
     // 刷新标签页标题。updateHeader 不在公开类型里，取不到就算了——标题旧一点不影响功能。
     ;(this.leaf as unknown as { updateHeader?: () => void }).updateHeader?.()
   }
@@ -837,7 +986,7 @@ export class MindmapView extends ItemView {
       this.connectors.render(nodes, frame, this.style.branch, bounds.x + bounds.w, bounds.y + bounds.h)
     })
 
-    if (this.needsFit && this.canvas.fit(this.bounds)) this.needsFit = false
+    this.initializeViewport()
   }
 
   /** 当前样式对应的布局参数。draw 与性能自检共用，免得两处各写一份。 */
@@ -916,6 +1065,7 @@ export class MindmapView extends ItemView {
   private reveal(id: string | null): void {
     const box = id === null ? undefined : this.boxes.get(id)
     if (box) this.canvas.ensureVisible(box)
+    this.rememberViewport()
   }
 
   // ── 鼠标 ────────────────────────────────────────────────────
@@ -1126,6 +1276,7 @@ export class MindmapView extends ItemView {
   }
 
   private async stepHistory(direction: HistoryDirection): Promise<void> {
+    if (!this.canEdit()) return
     const file = this.file
     if (!file || this.session) return
     this.drag.cancel()
@@ -1175,7 +1326,7 @@ export class MindmapView extends ItemView {
    * 提交时才生成唯一的一次写入。
    */
   private beginDraft(intent: EditIntent): void {
-    if (this.historyBusy) return
+    if (!this.canEdit() || this.historyBusy) return
     const tree = this.tree
     if (!tree || !this.file || this.session) return
 
@@ -1211,7 +1362,7 @@ export class MindmapView extends ItemView {
   }
 
   private beginRename(id: string): void {
-    if (this.historyBusy) return
+    if (!this.canEdit() || this.historyBusy) return
     const tree = this.tree
     if (!tree || !this.file || this.session) return
     const node = tree.byId.get(id)
@@ -1242,6 +1393,7 @@ export class MindmapView extends ItemView {
 
   /** 输入时的乐观更新：直接改内存里的 text → 重排 → 编辑框跟着新盒子走。 */
   private readonly onEditorInput = (text: string): void => {
+    if (!this.canEdit()) return
     const s = this.session
     if (!s) return
     s.node.text = text
@@ -1254,6 +1406,7 @@ export class MindmapView extends ItemView {
   }
 
   private readonly onEditorCommit = (text: string, next: CommitNext): void => {
+    if (!this.canEdit()) { this.cancelSession(); this.flushPending(); return }
     const s = this.session
     if (!s) return
     const value = text.trim()
@@ -1352,6 +1505,7 @@ export class MindmapView extends ItemView {
    * 得到的仍是【一次】可撤销的变更。
    */
   private removeSelected(): void {
+    if (!this.canEdit()) return
     const tree = this.tree
     const ids = this.selectionIds()
     if (!tree || ids.length === 0) return
@@ -1373,6 +1527,7 @@ export class MindmapView extends ItemView {
 
   /** 拖拽落点（M6）。结构变更本身全在 core/tree.ts 的 `moveSubtree` 里。 */
   private readonly onDrop = (dragId: string, result: DropResult): void => {
+    if (!this.canEdit()) return
     const tree = this.tree
     if (!tree || !this.file) return
 
@@ -1414,6 +1569,7 @@ export class MindmapView extends ItemView {
    *   同时作为返回值交还给调用方——那棵树只在这里现成，调用方不必自己再找一遍。
    */
   private applyEdit(plan: EditPlan, locate?: (tree: MindTree) => MindNode | null): MindNode | null {
+    if (!this.canEdit()) return null
     const tree = this.tree
     const file = this.file
     if (!tree || !file || plan.length === 0 || this.historyBusy) return null

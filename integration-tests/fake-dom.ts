@@ -26,6 +26,11 @@ export class FakeElement {
   readonly dataset: Record<string, string> = {}
   readonly children: Array<FakeElement | string> = []
   readonly styles: Record<string, string> = {}
+  readonly attributes: Record<string, string> = {}
+  readonly captures = new Set<number>()
+  readonly captureCalls: number[] = []
+  readonly listeners = new Map<string, Array<{ callback: (event: any) => void; capture: boolean }>>()
+  shown = true
   parent: FakeElement | null = null
 
   constructor(readonly tagName = 'div', readonly fragment = false) {}
@@ -46,7 +51,60 @@ export class FakeElement {
     return this.createEl('span', options)
   }
 
-  addEventListener(_type: string, _callback: unknown): void {}
+  createSvg(tag: string, options?: { cls?: string; attr?: Record<string, string> }): FakeElement {
+    const child = this.createEl(tag, options)
+    for (const [key, value] of Object.entries(options?.attr ?? {})) child.setAttribute(key, value)
+    return child
+  }
+
+  addEventListener(type: string, callback: any, options?: boolean | { capture?: boolean }): void {
+    const capture = typeof options === 'boolean' ? options : options?.capture === true
+    const list = this.listeners.get(type) ?? []
+    list.push({ callback, capture })
+    this.listeners.set(type, list)
+  }
+
+  removeEventListener(type: string, callback: unknown, options?: boolean | { capture?: boolean }): void {
+    const capture = typeof options === 'boolean' ? options : options?.capture === true
+    this.listeners.set(type, (this.listeners.get(type) ?? [])
+      .filter(listener => listener.callback !== callback || listener.capture !== capture))
+  }
+
+  dispatch(type: string, input: Record<string, any> = {}): any {
+    let stopped = false, immediate = false
+    const event = { ...input, type, target: this, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true },
+      stopPropagation() { stopped = true }, stopImmediatePropagation() { stopped = immediate = true } }
+    const path: FakeElement[] = []
+    for (let el: FakeElement | null = this; el; el = el.parent) path.push(el)
+    const invoke = (el: FakeElement, capture: boolean) => {
+      for (const listener of el.listeners.get(type) ?? []) {
+        if (listener.capture === capture && !immediate) listener.callback(event)
+      }
+    }
+    for (const el of [...path].reverse()) { invoke(el, true); if (stopped) return event }
+    for (const el of path) { invoke(el, false); if (stopped) break }
+    return event
+  }
+
+  setAttribute(name: string, value: string): void { this.attributes[name] = value }
+  getAttribute(name: string): string | null {
+    if (name.startsWith('data-')) return this.dataset[name.slice(5).replace(/-([a-z])/g, (_all, c) => c.toUpperCase())] ?? null
+    return this.attributes[name] ?? null
+  }
+  closest(selector: string): FakeElement | null {
+    const classes = selector.split(',').map(part => part.trim().slice(1))
+    for (let el: FakeElement | null = this; el; el = el.parent) {
+      if (classes.some(cls => el!.classList.contains(cls))) return el
+    }
+    return null
+  }
+  setPointerCapture(id: number): void { this.captures.add(id); this.captureCalls.push(id) }
+  hasPointerCapture(id: number): boolean { return this.captures.has(id) }
+  releasePointerCapture(id: number): void { this.captures.delete(id) }
+  getBoundingClientRect(): { left: number; top: number } { return { left: 0, top: 0 } }
+  focus(): void {}
+  isShown(): boolean { return this.shown }
 
   appendChild(child: FakeElement): FakeElement {
     if (child.fragment) {
@@ -75,12 +133,12 @@ export class FakeElement {
     this.children.length = 0
   }
 
-  addClass(cls: string): void {
-    this.classList.add(cls)
+  addClass(...classes: string[]): void {
+    this.classList.add(...classes)
   }
 
-  removeClass(cls: string): void {
-    this.classList.remove(cls)
+  removeClass(...classes: string[]): void {
+    this.classList.remove(...classes)
   }
 
   toggleClass(cls: string, force: boolean): void {
