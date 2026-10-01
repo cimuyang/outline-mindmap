@@ -152,7 +152,7 @@ export class MindmapView extends ItemView {
   private pendingPath: string | null = null
   /**
    * 钉在一篇笔记上（「打开为导图」换出来的那种），不跟随活动笔记；写进视图状态，重启后仍钉着。
-   * 与之相对的是侧边栏图标 / 命令面板打开的【跟随型】导图。
+   * 主区命令打开的导图同样固定到笔记；侧边栏导图保留跟随行为。
    */
   private pinned = false
   /**
@@ -353,7 +353,7 @@ export class MindmapView extends ItemView {
    * 可能已经不是它了）；二是重启 Obsidian 后导图还停在原来那篇上。
    */
   override getState(): Record<string, unknown> {
-    return { ...super.getState(), file: this.file?.path ?? null, pinned: this.pinned, noteMode: this.noteMode }
+    return { ...super.getState(), file: this.file?.path ?? this.pendingPath, pinned: this.pinned, noteMode: this.noteMode }
   }
 
   override async setState(state: unknown, result: ViewStateResult): Promise<void> {
