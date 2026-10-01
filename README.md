@@ -55,7 +55,9 @@ Four ways to open the map:
 
 Use **Open as note** in the map’s menu to return within the same tab, restoring the previous Reading/Editing mode.
 
-- **Following maps**: Maps opened from the ribbon or command palette follow the active note. Enable **Always show one note** to keep them on one file.
+- **Independent main-area maps**: **Open mindmap** opens a separate, natively pinned tab for each note. Repeating the command for the same note reveals its existing map without resetting edits, selection, or the viewport. Running the command from a map uses that map’s note.
+- **Following maps**: The ribbon and **Open mindmap in the sidebar** retain a shared sidebar map that follows the active note. Enable **Always show one note** to keep it on one file.
+- Native tab pinning prevents another note from replacing the tab. It is separate from binding a map to its note: removing the native tab pin does not make an independent map follow other notes. **Open as mindmap** retains its existing in-place conversion behavior.
 - **Per-note maps**: **Open as mindmap** converts the note’s tab in place and stays on that note. The opening form can be remembered; form changes do not enter tab history.
 
 In map-only mode, a node click selects it without opening a note. To read prose alongside the map, use the sidebar or a split pane. Click-to-locate only scrolls a note that is already visible.

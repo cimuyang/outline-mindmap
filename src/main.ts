@@ -20,6 +20,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
   readonly fileHistory = new FileHistory<TFile>()
   private readonly searches = new WeakMap<WorkspaceLeaf, { file: TFile; state: SearchState }>()
   private readonly searchNotes = new WeakMap<WorkspaceLeaf, TFile>()
+  private readonly openingTabs = new Map<string, Promise<void>>()
   private disposed = false
   settings: MindmapSettings = normalizeSettings(null)
   /** 样式两级存储。它就地读写 `settings.styles`，落盘复用 saveSettings（红线 1：只进 data.json）。 */
@@ -298,21 +299,63 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
   }
 
   /**
-   * 打开导图。同一个 `MindmapView` 既能待在主页面区，也能待在右侧边栏（M7）——
-   * 两处各找各的叶子，因此可以同时开着、互不干扰。
+   * 主区按笔记打开独立导图；侧边栏仍是复用的跟随视图。
    *
    * @param where `'tab'` = 主页面区新标签页；`'right'` = 右侧边栏
    */
   private async activateView(where: 'tab' | 'right'): Promise<void> {
     const workspace = this.app.workspace
-    const inSidebar = (leaf: WorkspaceLeaf): boolean => leaf.getRoot() === workspace.rightSplit
+    if (where === 'tab') {
+      // ItemView 不是 FileView：在导图上执行命令时 getActiveFile 可能仍指向上一篇笔记。
+      const activeMap = workspace.getActiveViewOfType(MindmapView)
+      const path = activeMap?.getState()['file']
+      const file = activeMap
+        ? (typeof path === 'string' ? this.app.vault.getFileByPath(path) : null)
+        : workspace.getActiveFile()
+      if (!file || file.extension !== 'md') {
+        new Notice(t('notice.openNoteFirst'))
+        return
+      }
+
+      // 新视图的异步加载尚未结束时，连续点击也只为这一篇创建一个标签页。
+      const key = file.path
+      const pending = this.openingTabs.get(key)
+      if (pending) return pending
+      const opening = this.openMindmapTab(file)
+      this.openingTabs.set(key, opening)
+      try {
+        await opening
+      } finally {
+        this.openingTabs.delete(key)
+      }
+      return
+    }
 
     const existing = workspace
       .getLeavesOfType(VIEW_TYPE_MINDMAP)
-      .find((leaf) => inSidebar(leaf) === (where === 'right'))
-    const leaf = existing ?? (where === 'right' ? workspace.getRightLeaf(false) : workspace.getLeaf('tab'))
+      .find((leaf) => leaf.getRoot() === workspace.rightSplit)
+    const leaf = existing ?? workspace.getRightLeaf(false)
     if (!leaf) return
     if (!existing) await leaf.setViewState({ type: VIEW_TYPE_MINDMAP, active: true })
     await workspace.revealLeaf(leaf)
+  }
+
+  private async openMindmapTab(file: TFile): Promise<void> {
+    const workspace = this.app.workspace
+    const matches = workspace.getLeavesOfType(VIEW_TYPE_MINDMAP).filter((leaf) => {
+      const root = leaf.getRoot()
+      return root !== workspace.rightSplit && root !== workspace.leftSplit &&
+        leaf.getViewState().state?.['file'] === file.path
+    })
+    const existing = matches.find((leaf) => leaf.getViewState().state?.['pinned'] === true) ?? matches[0]
+    const target = existing ?? workspace.getLeaf('tab')
+    // 导图自己的 pinned 只防跟随；原生标签固定还防止点下一篇笔记时被直接替换。
+    target.setPinned(true)
+    if (existing?.getViewState().state?.['pinned'] === true) {
+      // 只激活已有导图，保留缩放、折叠、选中和正在编辑的内容。
+      await workspace.revealLeaf(existing)
+      return
+    }
+    await this.openAsMindmap(file, target)
   }
 }
