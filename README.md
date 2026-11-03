@@ -6,11 +6,11 @@ Turn a Markdown note’s outline into a mindmap with live two-way editing, click
 
 ![Outline Mindmap demo](demo.gif)
 
-Demos were recorded with an earlier version; in 1.3.4, layout direction is in **Style settings**.
+Demos were recorded with an earlier version; layout direction is now under **Mindmap → Appearance**.
 
 ![Outline Mindmap demo](demo1.png)
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.4**
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.5**
 - The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
 ## Features
@@ -55,7 +55,7 @@ Four ways to open the map:
 
 Use **Open as note** in the map’s menu to return within the same tab, restoring the previous Reading/Editing mode.
 
-- **Following maps**: Maps opened from the ribbon or command palette follow the active note. Enable **Always show one note** to keep them on one file.
+- **Separate map views**: Use **Open mindmap** for a tab or **Open mindmap in sidebar** for the sidebar. Each has its own follow settings.
 - **Per-note maps**: **Open as mindmap** converts the note’s tab in place and stays on that note. The opening form can be remembered; form changes do not enter tab history.
 
 In map-only mode, a node click selects it without opening a note. To read prose alongside the map, use the sidebar or a split pane. Click-to-locate only scrolls a note that is already visible.
@@ -114,9 +114,9 @@ when a branch runs leftwards, `←` is the key that takes you *into* its childre
 
 ### Toolbar
 
-Fit to canvas · Zoom out · Zoom in · Expand all · Collapse all · Lock · Style settings.
+Fit to canvas · Zoom out · Zoom in · Expand all · Collapse all · Lock · Mindmap.
 
-Layout direction (branches right / left / both sides) is in **Style settings**, with the same
+Layout direction (branches right / left / both sides) is under **Mindmap → Appearance**, with the same
 global and per-note saving, live preview and Cancel behavior as other styles.
 
 The lock remembers your manual choice for each note. A locked map still follows changes made
@@ -142,10 +142,12 @@ pan from a node as well as empty space; tapping still selects or locates it.
 | Toggle | Default | What it does |
 | --- | --- | --- |
 | 单击即跳转 (Click to jump) | On | Clicking a node scrolls the visible note to the matching heading or list item and highlights it in both Editing and Reading view (focus stays on the map); after you create / rename / delete / drag a node, the note also stays at that node. **It only scrolls a note that is already visible on screen** — it never opens a tab, never splits a pane, never pulls a background tab to the front. Turn it off and a click only selects |
-| 固定显示一篇笔记 (Always show one note) | Off | The map stops following the active note and stays on the one it was opened with |
+| Tab mindmap | Keep current note | Follow, keep the current note, or use separate tabs per note |
+| Sidebar mindmap | Follow current note | Follow or keep the current note |
 | 优雅动画 (Smooth animation) | On | Nodes and edges move together. Disabled above 250 visible nodes or when the system requests reduced motion |
-| 严格换行 (Strict blank lines) | Off | When enabled, adding / moving nodes pads adjacent headings to 3 blank lines apart |
-| 把列表项显示为节点 (Show list items as nodes) | Off | Turn it off and the map shows headings only: list items go back to being body text under their heading. The note itself is not touched; switching back restores every list node. While it is off, adding or dragging past level 6 is blocked with a notice — a level-7 heading has no visible syntax to write |
+| Blank lines between headings (Strict blank lines) | Off | When enabled, adding / moving nodes pads adjacent headings to 3 blank lines apart |
+| Show numbered / bulleted list nodes | Off | Control visibility of each list type independently |
+| Deep node format | Bulleted list | Choose the list syntax for newly written nodes at level 7 or deeper |
 | 记住每篇笔记的打开方式 (Remember how each note opens) | On | A note converted with **Open as mindmap** opens as a mindmap next time, in whichever tab it appears; **Open as note** restores it, in the Reading / Editing mode it had when converted. The record lives only in the plugin's `data.json` and is migrated or cleaned up when the note is renamed, moved or deleted. Switching form does not enter tab history, so *Back* / *Forward* move between notes only |
 
 Styles — shape, colour scheme, **colour by level**, font size, horizontal and vertical gaps,
@@ -191,10 +193,18 @@ rather than creating a second copy with the same plugin id.
 
 Before publishing, run `npm test` and `npm run build`. Keep `manifest.json`,
 `package.json`, `package-lock.json` and `versions.json` in sync, then attach
-`main.js`, `manifest.json` and `styles.css` to the `1.3.4` GitHub release.
+`main.js`, `manifest.json` and `styles.css` to the `1.3.5` GitHub release.
 **The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
 
 ## What's new
+
+### v1.3.5
+
+- **Opening maps**. Follow the active note, keep one note fixed, or open separate map tabs per note. The sidebar has its own follow setting.
+- **Node formatting**. Render inline code and supported inline HTML colors, superscripts, and subscripts.
+- **Lists**. Show bulleted and numbered items independently, add either type from the node menu, and choose the Markdown list format for new deep nodes.
+- **Appearance**. Customize the canvas, connectors, and level colors. Preview changes, restore defaults, and apply them to one note or all notes.
+- **Export**. Export directly to PNG, SVG, or PDF, with controls for branches, background, padding, image quality, and PDF page size.
 
 ### v1.3.4
 

@@ -12,6 +12,7 @@ import type { Size } from '../layout/types'
 
 export interface FontSpec {
   family: string
+  monospace?: string
   size: number
   lineHeight: number
   /** 缓存键。字体变了（换主题、调字号）就换一个 key，旧条目自然失效。 */
@@ -65,6 +66,7 @@ function context(): CanvasRenderingContext2D | null {
 export function readFont(el: HTMLElement, scale = 1): FontSpec {
   const cs = getComputedStyle(el)
   const family = (cs.getPropertyValue('--font-text').trim() || cs.fontFamily || 'sans-serif').trim()
+  const monospace = cs.getPropertyValue('--font-monospace').trim() || 'monospace'
   const raw = parseFloat(cs.getPropertyValue('--font-text-size'))
   const base = Number.isFinite(raw) && raw > 0 ? raw : parseFloat(cs.fontSize) || 16
   // 取整到 0.5px：亚像素字号在 canvas 与 DOM 之间的舍入更容易对不上，
@@ -72,14 +74,17 @@ export function readFont(el: HTMLElement, scale = 1): FontSpec {
   const size = Math.max(6, Math.round(base * scale * 2) / 2)
   return {
     family,
+    monospace,
     size,
     lineHeight: Math.round(size * 1.45),
-    key: `${size}|${family}`,
+    key: `${size}|${family}|${monospace}`,
   }
 }
 
-function fontOf(seg: Pick<InlineSegment, 'bold' | 'italic'>, font: FontSpec): string {
-  return `${seg.italic ? 'italic ' : ''}${seg.bold ? '600 ' : 'normal '}${font.size}px ${font.family}`
+function fontOf(seg: Pick<InlineSegment, 'bold' | 'italic' | 'code' | 'vertical'>, font: FontSpec): string {
+  const size = seg.vertical ? font.size * 0.75 : font.size
+  const family = seg.code ? font.monospace ?? 'monospace' : font.family
+  return `${seg.italic ? 'italic ' : ''}${seg.bold ? '600 ' : 'normal '}${size}px ${family}`
 }
 
 interface Token {

@@ -17,7 +17,7 @@ import {
   MarkdownView,
   Notice,
   loadMathJax,
-  type Menu,
+  Menu,
   type TFile,
   type ViewStateResult,
   type WorkspaceLeaf,
@@ -62,6 +62,7 @@ import { Canvas } from './Canvas'
 import { Connectors } from './Connectors'
 import { DragController, subtreeIds, type DropResult } from './DragController'
 import { InlineEditor, type CommitNext } from './Editor'
+import { exportMap, ExportSizeError } from './exportMap'
 import { fileToShow } from './follow'
 import { NodeRenderer } from './NodeRenderer'
 import { Toolbar } from './Toolbar'
@@ -155,6 +156,9 @@ export class MindmapView extends ItemView {
    * 与之相对的是侧边栏图标 / 命令面板打开的【跟随型】导图。
    */
   private pinned = false
+  commandMap = false
+
+  get sourceFile(): TFile | null { return this.file }
   /**
    * 只给「跟随自检」命令看的留痕：最近 16 次「该不该换笔记」的判定。
    *
@@ -353,15 +357,17 @@ export class MindmapView extends ItemView {
    * 可能已经不是它了）；二是重启 Obsidian 后导图还停在原来那篇上。
    */
   override getState(): Record<string, unknown> {
-    return { ...super.getState(), file: this.file?.path ?? null, pinned: this.pinned, noteMode: this.noteMode }
+    return { ...super.getState(), file: this.file?.path ?? this.pendingPath ?? null, commandMap: this.commandMap, pinned: this.pinned, noteMode: this.noteMode }
   }
 
   override async setState(state: unknown, result: ViewStateResult): Promise<void> {
     await super.setState(state, result)
-    const { file: path, pinned, noteMode } =
-      (state as { file?: unknown; pinned?: unknown; noteMode?: unknown } | null) ?? {}
+    const { file: path, pinned, noteMode, commandMap } =
+      (state as { file?: unknown; pinned?: unknown; noteMode?: unknown; commandMap?: unknown } | null) ?? {}
     if (typeof path !== 'string') return
-    this.setPinned(pinned === true)
+    this.commandMap = commandMap === true
+    this.setPinned(this.commandMap ? this.host.settings.mapMode !== 'follow' : pinned === true)
+    if (this.commandMap) this.navigation = false
     if (this.pinned || !this.ready || this.file?.path === path) {
       this.noteMode = noteMode === 'preview' ||
         (noteMode === undefined && this.host.settings.openAs?.[path]?.noteMode === 'preview') ? 'preview' : 'source'
@@ -386,6 +392,14 @@ export class MindmapView extends ItemView {
    * 在它里面点开别的笔记，会在这个标签页里打开，而不是另开一个；「后退」也能回到导图。
    * 跟随型导图是工具面板，不参与导航。
    */
+  async refreshMapMode(): Promise<void> {
+    if (this.commandMap) {
+      this.pinned = this.host.settings.mapMode !== 'follow'
+      this.app.workspace.requestSaveLayout()
+    }
+    if (this.ready) await this.syncActiveFile()
+  }
+
   private setPinned(pinned: boolean): void {
     this.pinned = pinned
     this.navigation = pinned
@@ -400,7 +414,7 @@ export class MindmapView extends ItemView {
     const target = fileToShow(
       this.app.vault.getFileByPath(path),
       this.activeMarkdownFile(),
-      this.pinned || this.host.settings.lockFile,
+      this.pinned || (!this.commandMap && this.host.settings.lockFile),
     )
     if (target) await this.showFile(target)
     return target !== null
@@ -528,6 +542,7 @@ export class MindmapView extends ItemView {
 
     // 事件委托：整个图层只有这些监听器，与节点数量无关（第 2 章）
     this.registerDomEvent(nodeLayer, 'click', this.onLayerClick)
+    this.registerDomEvent(this.canvas.viewport, 'contextmenu', this.onNodeMenu)
     this.registerDomEvent(this.canvas.viewport, 'dblclick', this.onDoubleClick)
     this.registerDomEvent(this.canvas.viewport, 'keydown', this.onKeyDown)
     this.registerDomEvent(this.canvas.viewport, 'pointerdown', () => this.motion.finish(), true)
@@ -575,7 +590,7 @@ export class MindmapView extends ItemView {
         this.adoptFile(null)
         this.draw()
         const active = this.activeMarkdownFile()
-        if (!this.pinned && !this.host.settings.lockFile && active &&
+        if (!this.pinned && (this.commandMap || !this.host.settings.lockFile) && active &&
             active.path !== f.path && !active.path.startsWith(`${f.path}/`)) {
           void this.syncActiveFile(false, 'delete', active)
         }
@@ -772,6 +787,13 @@ export class MindmapView extends ItemView {
     root.addClass(`om-shape-${next.shape}`, `om-scheme-${next.scheme}`)
     // 多彩标题：层级 class 常年在节点上，着不着色由根上的这一个开关说了算
     root.toggleClass('om-level-colors', next.colorByLevel)
+    if (prev.background || next.background) root.style.setProperty('--om-custom-background', next.background ?? '')
+    if (prev.edgeColor || next.edgeColor) root.style.setProperty('--om-custom-edge', next.edgeColor ?? '')
+    for (let i = 0; (prev.levelColors || next.levelColors) && i < 6; i++) {
+      const color = next.levelColors?.[i]
+      const rgb = color?.slice(1).match(/../g)?.map(channel => parseInt(channel, 16)).join(', ')
+      root.style.setProperty('--om-custom-level-' + (i + 1), rgb ?? '')
+    }
     // 字号缩放变了 → 之前量出来的每一个宽高都作废
     if (changed && prev.fontScale !== next.fontScale) this.font = null
     this.style = next
@@ -804,11 +826,40 @@ export class MindmapView extends ItemView {
 
   /** 打开样式窗口（M8）。没有笔记时窗口里只有「应用全局设置」可按。 */
   private openStyle(): void {
+    const source = this.file
     new StyleModal(
       this.app,
       this.host.styles,
       this.file?.path ?? null,
       this.file?.basename ?? null,
+      source ? async (format, background, scale, page, padding, expandAll) => {
+        let exportLayer: HTMLElement | undefined
+        try {
+          if (this.file !== source || !this.ready) throw new Error('The source map changed')
+          this.motion.finish()
+          if (expandAll && this.tree) {
+            const fullTree = parse(joinLines(this.tree.lines, this.tree.eol), this.parseOptions())
+            const boxes = layout(fullTree, this.layoutOptions())
+            const nodes = visibleNodes(fullTree)
+            const bounds = boundsOf(boxes)
+            exportLayer = this.contentEl.createDiv({ cls: 'om-content om-export-layer' })
+            const connectors = new Connectors(exportLayer.createSvg('svg', { cls: 'om-svg' }))
+            connectors.render(nodes, boxes, this.style.branch, bounds.x + bounds.w, bounds.y + bounds.h)
+            const renderer = new NodeRenderer(exportLayer.createDiv({ cls: 'om-nodes' }))
+            renderer.render(nodes, boxes, new Set(), rootSide(this.direction))
+          }
+          await exportMap(exportLayer ?? this.canvas.content, this.file?.basename ?? 'mindmap', format,
+            background === 'white' || (format === 'pdf' && background === 'transparent') ? '#fff'
+              : background === 'transparent' ? '' : this.style.background ?? getComputedStyle(this.contentEl)
+                .getPropertyValue('--background-primary').trim(), scale, page, padding)
+        } catch (error) {
+          console.error(error)
+          new Notice(t(error instanceof ExportSizeError ? 'style.exportTooLarge' : 'style.exportFailed'))
+        } finally {
+          exportLayer?.remove()
+        }
+      } : undefined,
+      () => ({ width: Math.ceil(this.bounds.w), height: Math.ceil(this.bounds.h) }),
     ).open()
   }
 
@@ -817,6 +868,9 @@ export class MindmapView extends ItemView {
     return {
       strictLineBreak: this.host.settings.strictLineBreak,
       listNodes: this.host.settings.listNodes,
+      orderedListNodes: this.host.settings.orderedListNodes,
+      deepListMarker: this.host.settings.listNodes && this.host.settings.orderedListNodes
+        ? this.host.settings.deepListMarker : this.host.settings.orderedListNodes ? '1.' : '-',
     }
   }
 
@@ -871,7 +925,7 @@ export class MindmapView extends ItemView {
     const next = candidate === undefined ? this.activeMarkdownFile() : markdownOnly(candidate)
     // 钉住的导图（「打开为导图」换出来的）与全局「固定显示一篇笔记」（M7 设置项，键名仍是 lockFile）：
     // 都不跟着活动笔记走。force 那次是视图刚打开时的首次同步，必须放行——否则新开一个导图会是空的。
-    if ((this.pinned || this.host.settings.lockFile) && this.file && !force) {
+    if ((this.pinned || (!this.commandMap && this.host.settings.lockFile)) && this.file && !force) {
       this.note(source, next, t('trail.blockedByPin'))
       return
     }
@@ -1294,6 +1348,21 @@ export class MindmapView extends ItemView {
 
   // ── 编辑会话 ────────────────────────────────────────────────
 
+  private readonly onNodeMenu = (event: MouseEvent): void => {
+    if (!this.canEdit() || this.session || !(event.target instanceof Element)) return
+    const id = event.target.closest<HTMLElement>('.om-node')?.dataset.nodeId
+    if (!id || !this.tree?.byId.has(id)) return
+    const { orderedListNodes, listNodes } = this.host.settings
+    if (!orderedListNodes && !listNodes) return
+    event.preventDefault()
+    const menu = new Menu()
+    if (orderedListNodes) menu.addItem(item => item.setTitle(t('menu.addOrdered')).setIcon('list-ordered')
+      .onClick(() => this.beginDraft({ type: 'child', parentId: id, marker: '1.' })))
+    if (listNodes) menu.addItem(item => item.setTitle(t('menu.addUnordered')).setIcon('list')
+      .onClick(() => this.beginDraft({ type: 'child', parentId: id, marker: '-' })))
+    menu.showAtMouseEvent(event)
+  }
+
   private startSibling(): void {
     const node = this.selectedNode()
     // 没有选中（空笔记、刚打开）时回车 = 新建一个自由根
@@ -1306,7 +1375,7 @@ export class MindmapView extends ItemView {
     if (!node) return
     // 「忽略列表节点」开着时第 6 层下没法再挂子节点：列表语法会被解析回正文，
     // 写进去就是一棵看不见的子树。用用户的语言拦在编辑框打开之前。
-    if (!this.host.settings.listNodes && node.depth >= 6) {
+    if (!this.host.settings.listNodes && !this.host.settings.orderedListNodes && node.depth >= 6) {
       new Notice(t('notice.listNodesRequired'))
       return
     }
@@ -1341,7 +1410,7 @@ export class MindmapView extends ItemView {
       parent = intent.parentId === null ? tree.root : (tree.byId.get(intent.parentId) ?? null)
       if (!parent) return
       parent.collapsed = false // 往折叠着的节点里加子节点，得先让人看见
-      index = parent.children.length
+      index = intent.marker ? 0 : parent.children.length
     } else if (intent.type === 'root') {
       parent = tree.root
       index = parent.children.length
@@ -1476,7 +1545,7 @@ export class MindmapView extends ItemView {
       return null
     }
     // applyEdit 里的 refresh 换了一棵新树，节点得按结构位置重新找
-    const node = this.applyEdit(outcome.plan, (t) => resolveAt(t, outcome.parentId, outcome.index))
+    const node = this.applyEdit(outcome.plan, (t) => resolveAt(t, outcome.parentId, outcome.index), text.trim())
     if (node) {
       this.setSelection(node.id)
       this.draw()
@@ -1533,7 +1602,7 @@ export class MindmapView extends ItemView {
 
     // 同 startChild 的拦截，但要看整棵子树：标题层级跳跃被保留（A.3），
     // 父挪深一层可能把某个后代推过第 6 层。core 里的同名断言只是兜底。
-    if (!this.host.settings.listNodes) {
+    if (!this.host.settings.listNodes && !this.host.settings.orderedListNodes) {
       const node = tree.byId.get(dragId)
       const parentDepth = result.parentId === null ? 0 : (tree.byId.get(result.parentId)?.depth ?? 0)
       if (node && parentDepth + 1 + maxDepthDrop(node) >= 7) {
@@ -1550,7 +1619,7 @@ export class MindmapView extends ItemView {
       return
     }
     // 换了一棵新树，被移动的节点要按结构位置重新找（它的 id 由 reconcile 保住，但对象是新的）
-    const node = this.applyEdit(plan, (t) => resolveAt(t, result.parentId, result.index))
+    const node = this.applyEdit(plan, (t) => resolveAt(t, result.parentId, result.index), tree.byId.get(dragId)?.text)
     if (!node) return
     // 放进一个折叠着的节点里，得让人看见结果
     for (let p = node.parent; p; p = p.parent) p.collapsed = false
@@ -1568,7 +1637,7 @@ export class MindmapView extends ItemView {
    * @param locate 在写入后的新树上找出这次编辑的目标节点。它决定笔记要跟到哪一行（M11），
    *   同时作为返回值交还给调用方——那棵树只在这里现成，调用方不必自己再找一遍。
    */
-  private applyEdit(plan: EditPlan, locate?: (tree: MindTree) => MindNode | null): MindNode | null {
+  private applyEdit(plan: EditPlan, locate?: (tree: MindTree) => MindNode | null, expectedText?: string): MindNode | null {
     if (!this.canEdit()) return null
     const tree = this.tree
     const file = this.file
@@ -1582,6 +1651,14 @@ export class MindmapView extends ItemView {
     } catch (err) {
       this.report(err)
       return null
+    }
+    if (locate && expectedText !== undefined) {
+      const parsed = reconcile(tree, parse(text, this.parseOptions()))
+      if (locate(parsed)?.text !== expectedText) {
+        new Notice(t('notice.invalidStructure'))
+        this.draw()
+        return null
+      }
     }
     this.refresh(text)
 

@@ -20,13 +20,20 @@ export interface InlineSegment {
   link: boolean
   /** 这一段是 `$...$` 行内 LaTeX；text 里只放公式源码，不含美元定界符。 */
   math?: boolean
+  code?: boolean
+  color?: string
+  background?: string
+  vertical?: 'sup' | 'sub'
 }
 
 /** 顺序即优先级：必须先匹配最长的 `***`，否则会被拆成 `**` + `*`。 */
 const MARKERS = ['***', '**', '*', '==', '~~'] as const
 type Marker = (typeof MARKERS)[number]
 
-const ESCAPABLE = new Set(['*', '=', '~', '$', '\\'])
+const ESCAPABLE = new Set(['*', '=', '~', '$', '`', '\\'])
+
+const VERTICAL_SPAN = /<(sup|sub)>([^<>]*)<\/\1>/iy
+const COLOR_SPAN = /<span\s+style=(["'])((?:\s*(?:color|background-color)\s*:\s*(?:#[\da-f]{3,8}|[a-z]+)\s*(?:;|(?=\1)))+)\s*\1\s*>([^<>]*)<\/span\s*>/iy
 
 function markerAt(text: string, i: number): Marker | null {
   for (const m of MARKERS) {
@@ -36,10 +43,24 @@ function markerAt(text: string, i: number): Marker | null {
 }
 
 /** 后面还有没有同样的标记可以配对。没有就当普通文字，不吃掉这个字符。 */
+function codeCloser(text: string, from: number, width: number): RegExpExecArray | null {
+  const delimiters = /`+/g
+  delimiters.lastIndex = from
+  let closer = delimiters.exec(text)
+  while (closer && closer[0].length !== width) closer = delimiters.exec(text)
+  return closer
+}
+
 function hasCloser(text: string, from: number, marker: Marker): boolean {
   for (let j = from; j < text.length; j++) {
     if (text[j] === '\\') {
       j++
+      continue
+    }
+    if (text[j] === '`') {
+      const run = /^`+/.exec(text.slice(j))![0]
+      const closer = codeCloser(text, j + run.length, run.length)
+      j = (closer ? closer.index + run.length : j + run.length) - 1
       continue
     }
     if (markerAt(text, j) === marker) return true
@@ -175,7 +196,8 @@ export function parseInline(text: string): InlineSegment[] {
       last.highlight === style.highlight &&
       last.strike === style.strike &&
       last.link === style.link &&
-      last.math === style.math
+      last.math === style.math &&
+      !last.code && !last.color && !last.background && !last.vertical
     ) {
       last.text += buf
     } else {
@@ -190,6 +212,50 @@ export function parseInline(text: string): InlineSegment[] {
     if (ch === '\\' && i + 1 < text.length && ESCAPABLE.has(text[i + 1] as string)) {
       buf += text[i + 1] as string
       i += 2
+      continue
+    }
+    if (ch === '<') {
+      COLOR_SPAN.lastIndex = i
+      const span = COLOR_SPAN.exec(text)
+      if (span) {
+        flush()
+        const segment: InlineSegment = { text: span[3]!, ...styleOf(stack, false) }
+        for (const declaration of span[2]!.split(';')) {
+          const [property, value] = declaration.trim().toLowerCase().split(/\s*:\s*/)
+          if (!value) continue
+          if (property === 'color') segment.color = value
+          else segment.background = value
+        }
+        segs.push(segment)
+        i += span[0].length
+        continue
+      }
+      VERTICAL_SPAN.lastIndex = i
+      const vertical = VERTICAL_SPAN.exec(text)
+      if (vertical) {
+        flush()
+        segs.push({ text: vertical[2]!, ...styleOf(stack, false), vertical: vertical[1]!.toLowerCase() === 'sup' ? 'sup' : 'sub' })
+        i += vertical[0].length
+        continue
+      }
+    }
+    if (ch === '`') {
+      let end = i + 1
+      while (text[end] === '`') end++
+      const width = end - i
+      const closer = codeCloser(text, end, width)
+      if (closer) {
+        flush()
+        let literal = text.slice(end, closer.index).replace(/\r\n?|\n/g, ' ')
+        if (literal.startsWith(' ') && literal.endsWith(' ') && /[^ ]/.test(literal)) {
+          literal = literal.slice(1, -1)
+        }
+        segs.push({ text: literal, ...styleOf(stack, false), code: true })
+        i = closer.index + width
+      } else {
+        buf += text.slice(i, end)
+        i = end
+      }
       continue
     }
     // 链接优先于强调标记：`[[a**b**]]` 里的 `**` 是目标名的一部分，不该被当成加粗。
@@ -262,6 +328,9 @@ export interface InlineTag {
  */
 export function tagsFor(seg: InlineSegment): InlineTag[] {
   const tags: InlineTag[] = []
+  if (seg.code) tags.push({ tag: 'code', cls: 'om-inline-code' })
+  if (seg.color || seg.background) tags.push({ tag: 'span' })
+  if (seg.vertical) tags.push({ tag: seg.vertical })
   if (seg.link) tags.push({ tag: 'span', cls: 'om-link' })
   if (seg.strike) tags.push({ tag: 's' })
   if (seg.highlight) tags.push({ tag: 'mark' })

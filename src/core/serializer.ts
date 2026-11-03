@@ -8,16 +8,21 @@ import type { MindNode, MindTree, NodeKind, ParseOptions } from './types'
 import { listBaseDepthOf } from './parser'
 
 /** 附录 A.6 序列化公式。 */
+export function listMarker(line: string | undefined): string {
+  return /^\s*(\d{1,9}[.)])\s/.exec(line ?? '')?.[1] ?? '-'
+}
+
 export function serializeNode(
   text: string,
   depth: number,
   kind: NodeKind,
   listBaseDepth: number,
+  marker = '-',
 ): string {
   if (kind === 'heading') {
     return '#'.repeat(Math.min(6, Math.max(1, depth))) + ' ' + text
   }
-  return '\t'.repeat(Math.max(0, depth - listBaseDepth)) + '- ' + text
+  return '\t'.repeat(Math.max(0, depth - listBaseDepth)) + marker + ' ' + text
 }
 
 /** 装配阶段的中间表示：一个节点行 + 紧随其后的自身正文行。 */
@@ -79,9 +84,14 @@ function collectUnits(
   kind: NodeKind,
   listBaseDepth: number,
   rootKindChanged: boolean,
+  indent?: string,
+  defaultMarker = '-',
 ): void {
+  const marker = node.kind === 'list' ? listMarker(lines[node.titleLine]) : defaultMarker
   units.push({
-    line: serializeNode(node.text, depth, kind, listBaseDepth),
+    line: kind === 'list' && indent !== undefined
+      ? indent + marker + ' ' + node.text
+      : serializeNode(node.text, depth, kind, listBaseDepth, marker),
     kind,
     body: bodyOf(lines, node),
   })
@@ -92,7 +102,9 @@ function collectUnits(
     const childKind = resolveChildKind(childDepth, kind, child.kind, rootKindChanged)
     // 列表块的基准 = 最近标题祖先 depth + 1；父是列表则沿用父的基准。
     const childBase = kind === 'heading' ? depth + 1 : listBaseDepth
-    collectUnits(units, lines, child, childDepth, childKind, childBase, rootKindChanged)
+    const childIndent = indent === undefined ? undefined : kind === 'list'
+      ? indent + ' '.repeat(marker.length + 1) : ''
+    collectUnits(units, lines, child, childDepth, childKind, childBase, rootKindChanged, childIndent, defaultMarker)
   }
 }
 
@@ -109,9 +121,12 @@ export function serializeSubtree(
   targetKind: NodeKind,
   listBaseDepth: number,
   options: ParseOptions,
+  parentListLine?: string,
 ): string[] {
   const units: Unit[] = []
-  collectUnits(units, lines, node, targetDepth, targetKind, listBaseDepth, targetKind !== node.kind)
+  const prefix = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/.exec(parentListLine ?? '')?.[0] ?? ''
+  const indent = options.orderedListNodes ? prefix.replace(/[^\t]/g, ' ') : undefined
+  collectUnits(units, lines, node, targetDepth, targetKind, listBaseDepth, targetKind !== node.kind, indent, options.deepListMarker)
   return assemble(units, options)
 }
 

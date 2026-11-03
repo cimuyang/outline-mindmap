@@ -11,7 +11,7 @@ import { DEFAULT_OPTIONS, type MindNode, type MindTree, type NodeKind, type Pars
 /** ATX 标题。注意：行首不允许有空白，`#标题`（无空格）不是标题。 */
 const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/
 /** 无序列表项。捕获：前导空白 / 标记 / 标记后空白 / 内容。 */
-const LIST_RE = /^([ \t]*)([-*+])([ \t]+)(.*)$/
+const LIST_RE = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/
 /** 代码围栏。3 个及以上的 ` 或 ~。 */
 const FENCE_RE = /^([ \t]*)(`{3,}|~{3,})(.*)$/
 
@@ -100,7 +100,7 @@ function frontmatterEnd(lines: string[]): number {
  * @param listNodes false 时列表项不算节点（A.4 的列表节点模式整个不启动），
  * 列表行连同它的缩进续行都只是正文。围栏判定不受影响——围栏内的行本来就不是节点。
  */
-function scan(lines: string[], listNodes: boolean): RawNode[] {
+function scan(lines: string[], listNodes: boolean, orderedListNodes = false): RawNode[] {
   const nodes: RawNode[] = []
 
   /** 最近的标题祖先深度；null 表示尚未出现任何标题。 */
@@ -111,6 +111,7 @@ function scan(lines: string[], listNodes: boolean): RawNode[] {
   let listBaseWidth = 0
   /** 上一个列表节点的内容起始列，用于判定「缩进续行」。 */
   let listContentCol = 0
+  const listIndents: number[] = []
   /** 代码围栏状态。 */
   let fence: { marker: string; len: number } | null = null
 
@@ -148,6 +149,7 @@ function scan(lines: string[], listNodes: boolean): RawNode[] {
       const depth = (h[1] ?? '').length
       nodes.push({ line: i, depth, kind: 'heading', text: stripClosingHashes(h[2] ?? '') })
       headingDepth = depth
+      listIndents.length = 0
       listMode = 'none' // 新的标题作用域
       continue
     }
@@ -156,15 +158,19 @@ function scan(lines: string[], listNodes: boolean): RawNode[] {
     if (isBlank(line)) continue
 
     // ── 优先级 3：列表项 ──
-    const l = listNodes ? LIST_RE.exec(line) : null
-    if (l) {
+    const l = listNodes || orderedListNodes ? LIST_RE.exec(line) : null
+    if (l && (/^\d/.test(l[2] ?? '') ? orderedListNodes : listNodes)) {
       if (listMode === 'ended') continue // 模式已终止，此后列表一律是正文
       const w = indentWidth(l[1] ?? '')
       if (listMode === 'none') {
         listMode = 'active'
         listBaseWidth = w
       }
-      const level = Math.max(0, Math.floor((w - listBaseWidth) / INDENT_UNIT))
+      let level = Math.max(0, Math.floor((w - listBaseWidth) / INDENT_UNIT))
+      if (orderedListNodes) {
+        while (listIndents.length && w < listIndents[listIndents.length - 1]!) listIndents.pop()
+        level = listIndents.length
+      }
       nodes.push({
         line: i,
         depth: (headingDepth ?? 0) + 1 + level,
@@ -172,6 +178,7 @@ function scan(lines: string[], listNodes: boolean): RawNode[] {
         text: (l[4] ?? '').trim(),
       })
       listContentCol = w + (l[2] ?? '').length + indentWidth(l[3] ?? '')
+      if (orderedListNodes) listIndents.push(listContentCol)
       continue
     }
 
@@ -214,7 +221,7 @@ function makeNode(
 export function parse(text: string, options: ParseOptions = DEFAULT_OPTIONS): MindTree {
   const eol = detectEol(text)
   const lines = splitLines(text)
-  const raw = scan(lines, options.listNodes)
+  const raw = scan(lines, options.listNodes, options.orderedListNodes)
 
   let counter = 0
   const nextId = (): string => `n${++counter}`

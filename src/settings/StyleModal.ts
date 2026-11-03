@@ -1,19 +1,8 @@
-/**
- * 样式窗口（M8）。
- *
- * 顶部固定三个按钮：应用全局设置 / 应用单篇笔记设置 / 取消。
- * 拖动任何一项都【实时预览】——预览只走 StyleStore 的内存态，
- * 按下「应用」之前 data.json 一个字节都不会变，笔记更是从头到尾没被碰过（红线 1）。
- *
- * 【点窗口外面默认视为应用】：Obsidian 的遮罩点击会直接 close()，
- * 我们在 onClose 里补上那次应用——用户看着预览满意了随手点开画布，
- * 结果样式被悄悄丢掉，是最让人恼火的一种交互。
- */
-
 import { Modal, Setting, type App } from 'obsidian'
 import { t, type MsgKey } from '../i18n'
 import type { BranchStyle, LayoutDirection } from '../layout/types'
 import {
+  DEFAULT_STYLE,
   STYLE_LIMITS,
   type ColorScheme,
   type MindmapStyle,
@@ -46,8 +35,6 @@ const SCHEME_LABELS: Record<ColorScheme, MsgKey> = {
 
 export class StyleModal extends Modal {
   private readonly draft: MindmapStyle
-  /** 已经按过三个按钮之一。没按过就关窗（点遮罩、Esc）按「应用」处理。 */
-  private settled = false
 
   /**
    * @param path 当前笔记路径。为 null 表示没有笔记（此时只能应用全局设置）
@@ -58,6 +45,8 @@ export class StyleModal extends Modal {
     private readonly store: StyleStore,
     private readonly path: string | null,
     private readonly title: string | null,
+    private readonly exportImage?: (format: 'png' | 'svg' | 'pdf', background: 'map' | 'white' | 'transparent', scale: number, page: 'fit' | 'landscape' | 'portrait', padding: number, expandAll: boolean) => Promise<void>,
+    private readonly exportSize?: () => { width: number; height: number },
   ) {
     super(app)
     this.draft = { ...store.styleFor(path) }
@@ -68,55 +57,129 @@ export class StyleModal extends Modal {
     const { contentEl } = this
     contentEl.empty()
     contentEl.createEl('h3', {
-      text: this.title ? t('style.titleWithNote', this.title) : t('style.title'),
+      text: t('style.title'),
     })
 
-    this.buildActions(contentEl)
-    this.buildControls(contentEl)
+    if (this.title) contentEl.createDiv({ text: this.title, cls: 'setting-item-description' })
+    const appearance = contentEl.createDiv()
+    const controls = appearance.createDiv()
+    const renderControls = () => {
+      controls.empty()
+      this.buildControls(controls)
+      this.buildPalette(controls)
+    }
+    renderControls()
+    const actions = appearance.createDiv({ cls: 'om-style-actions' })
+    actions.createEl('button', { text: t('style.restoreDefaults') }).onclick = () => {
+      this.update({ ...DEFAULT_STYLE, background: '', edgeColor: '', levelColors: [] })
+      renderControls()
+    }
+    let scope = this.path === null ? 'global' : 'note'
+    new Setting(actions).addDropdown(dropdown => {
+      if (this.path !== null) dropdown.addOption('note', t('style.scopeNote'))
+      if (this.store.hasOverride(this.path)) dropdown.addOption('inherit', t('style.inheritGlobal'))
+      dropdown.addOption('global', t('style.scopeGlobal')).setValue(scope)
+        .onChange(value => { scope = value })
+    }).addButton(button => button.setButtonText(t('style.apply')).setCta().onClick(() => {
+      const path = this.targetPath()
+      if (scope === 'global') this.store.applyGlobal(path, this.draft)
+      else if (path !== null && scope === 'inherit') this.store.clearFile(path)
+      else if (path !== null) this.store.applyFile(path, this.draft)
+      this.close()
+    }))
+    if (this.exportImage) {
+      const exportPanel = contentEl.createDiv()
+      this.buildExport(exportPanel)
+      const tabs = contentEl.createDiv({ cls: 'om-appearance-tabs' })
+      contentEl.insertBefore(tabs, appearance)
+      const styleTab = tabs.createEl('button', { text: t('style.appearance') })
+      const exportTab = tabs.createEl('button', { text: t('style.export') })
+      const select = (showExport: boolean) => {
+        appearance.hidden = showExport
+        exportPanel.hidden = !showExport
+        styleTab.setAttribute('aria-pressed', String(!showExport))
+        exportTab.setAttribute('aria-pressed', String(showExport))
+      }
+      styleTab.onclick = () => select(false)
+      exportTab.onclick = () => select(true)
+      select(false)
+    }
   }
 
   override onClose(): void {
-    // 没按按钮就关掉 = 应用。有笔记时落到单篇，没笔记时只能落到全局
-    if (!this.settled) {
-      const path = this.targetPath()
-      if (path !== null) this.store.applyFile(path, this.draft)
-      else this.store.applyGlobal(null, this.draft)
-    }
-    // 应用过的话预览已经被清掉了；这一行是给「取消」和异常路径兜底
     this.store.clearPreview()
     this.contentEl.empty()
   }
 
-  /** 三个按钮固定在顶部：下面的控件再多、窗口再滚，它们始终在手边。 */
-  private buildActions(host: HTMLElement): void {
-    const bar = host.createDiv({ cls: 'om-style-actions' })
-
-    const toAll = bar.createEl('button', { text: t('style.applyGlobal') })
-    toAll.addEventListener('click', () => {
-      this.settled = true
-      this.store.applyGlobal(this.targetPath(), this.draft)
-      this.close()
-    })
-
-    const single = bar.createEl('button', { text: t('style.applyFile'), cls: 'mod-cta' })
-    single.addEventListener('click', () => {
-      const path = this.targetPath()
-      if (path === null) return
-      this.settled = true
-      this.store.applyFile(path, this.draft)
-      this.close()
-    })
-    if (this.path === null) {
-      // 没有笔记就没有「单篇」可言。禁用而不是隐藏，免得按钮位置忽左忽右
-      single.disabled = true
-      single.setAttribute('aria-label', t('style.noNote'))
+  private buildPalette(host: HTMLElement): void {
+    const details = host.createEl('details', { cls: 'om-style-section' })
+    details.createEl('summary', { text: t('style.customColors') })
+    const color = (label: string, value: string, update: (value: string) => void) => {
+      new Setting(details).setName(label)
+        .addColorPicker(picker => picker.setValue(value || '#808080').onChange(update))
     }
+    color(t('style.background'), this.draft.background ?? '', background => this.update({ background }))
+    color(t('style.edges'), this.draft.edgeColor ?? '', edgeColor => this.update({ edgeColor }))
+    for (let i = 0; i < 6; i++) {
+      color(t('style.level', String(i + 1)), this.draft.levelColors?.[i] ?? '', value => {
+        const levelColors = Array.from({ length: 6 }, (_, level) => this.draft.levelColors?.[level] ?? '')
+        levelColors[i] = value
+        this.update({ levelColors, colorByLevel: true })
+      })
+    }
+    new Setting(details).addButton(button => button.setButtonText(t('style.resetColors')).onClick(() => {
+      this.update({ background: '', edgeColor: '', levelColors: [] })
+      details.remove()
+      this.buildPalette(host)
+    }))
+  }
 
-    const cancel = bar.createEl('button', { text: t('style.cancel') })
-    cancel.addEventListener('click', () => {
-      this.settled = true
-      this.store.clearPreview() // 预览撤销 → 画面回到打开窗口之前的样子
-      this.close()
+  private buildExport(host: HTMLElement): void {
+    if (!this.exportImage) return
+    let background: 'map' | 'white' | 'transparent' = 'map'
+    let page: 'fit' | 'landscape' | 'portrait' = 'fit'
+    let scale = 2
+    let padding = 24
+    let expandAll = false
+    const dimensions = host.createDiv({ cls: 'setting-item-description' })
+    const showSize = () => {
+      const size = this.exportSize?.()
+      dimensions.textContent = size && !expandAll ? t('style.exportSize', String((size.width + padding * 2) * scale), String((size.height + padding * 2) * scale)) : ''
+    }
+    showSize()
+    new Setting(host).setName(t('style.range')).addDropdown(dropdown => dropdown
+      .addOption('visible', t('style.currentBranches')).addOption('all', t('style.expandAll'))
+      .onChange(value => { expandAll = value === 'all'; showSize() }))
+    new Setting(host).setName(t('style.background')).addDropdown(dropdown => dropdown
+      .addOption('map', t('style.mapBackground')).addOption('white', t('style.white'))
+      .addOption('transparent', t('style.transparent')).onChange(value => {
+        if (value === 'map' || value === 'white' || value === 'transparent') background = value
+      }))
+    const details = host.createEl('details', { cls: 'om-style-section' })
+    details.createEl('summary', { text: t('style.more') })
+    new Setting(details).setName(t('style.quality')).addDropdown(dropdown => dropdown
+      .addOption('1', t('style.standard')).addOption('2', t('style.high')).setValue('2')
+      .onChange(value => { scale = Number(value); showSize() }))
+    new Setting(details).setName(t('style.padding')).addDropdown(dropdown => dropdown
+      .addOption('12', t('style.compact')).addOption('24', t('style.standard')).addOption('48', t('style.spacious'))
+      .setValue('24').onChange(value => { padding = Number(value); showSize() }))
+    new Setting(details).setName(t('style.pdfPage')).addDropdown(dropdown => dropdown
+      .addOption('fit', t('style.fitPage')).addOption('landscape', t('style.landscape'))
+      .addOption('portrait', t('style.portrait')).onChange(value => {
+        if (value === 'fit' || value === 'landscape' || value === 'portrait') page = value
+      }))
+    const actions = host.createDiv({ cls: 'om-export-actions' })
+    const buttons = (['png', 'svg', 'pdf'] as const).map(format => {
+      const button = actions.createEl('button', { text: t('style.exportAs', format.toUpperCase()) })
+      button.onclick = async () => {
+        for (const control of buttons) control.disabled = true
+        try {
+          await this.exportImage?.(format, background, scale, page, padding, expandAll)
+        } finally {
+          for (const control of buttons) control.disabled = false
+        }
+      }
+      return button
     })
   }
 
@@ -126,7 +189,9 @@ export class StyleModal extends Modal {
       d.setValue(this.draft.direction).onChange((v) => this.update({ direction: v as LayoutDirection }))
     })
 
-    new Setting(host)
+    const details = host.createEl('details', { cls: 'om-style-section' })
+    details.createEl('summary', { text: t('style.details') })
+    new Setting(details)
       .setName(t('style.hGap'))
       .setDesc(t('style.hGapDesc'))
       .addSlider((s) =>
@@ -136,7 +201,7 @@ export class StyleModal extends Modal {
           .onChange((v) => this.update({ hGap: v })),
       )
 
-    new Setting(host)
+    new Setting(details)
       .setName(t('style.vGap'))
       .setDesc(t('style.vGapDesc'))
       .addSlider((s) =>
@@ -168,7 +233,7 @@ export class StyleModal extends Modal {
         s.setValue(this.draft.colorByLevel).onChange((v) => this.update({ colorByLevel: v })),
       )
 
-    new Setting(host)
+    new Setting(details)
       .setName(t('style.fontScale'))
       .setDesc(t('style.fontScaleDesc'))
       .addSlider((s) =>
@@ -181,6 +246,7 @@ export class StyleModal extends Modal {
           .setValue(this.draft.fontScale)
           .onChange((v) => this.update({ fontScale: v })),
       )
+    host.appendChild(details)
   }
 
   /**
@@ -197,6 +263,6 @@ export class StyleModal extends Modal {
   /** 改一项 → 立刻预览。传副本进去：draft 之后还会被继续改，store 不该跟着变。 */
   private update(patch: Partial<MindmapStyle>): void {
     Object.assign(this.draft, patch)
-    this.store.setPreview(this.path, { ...this.draft })
+    this.store.setPreview(this.targetPath(), { ...this.draft })
   }
 }

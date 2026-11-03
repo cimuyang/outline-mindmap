@@ -62,6 +62,8 @@ export interface ParseOptions {
    * 树里只剩标题（深度因此不超过 6），文件本身一个字节都不变。
    */
   listNodes: boolean
+  orderedListNodes?: boolean
+  deepListMarker?: '-' | '1.'
 }
 
 export const DEFAULT_OPTIONS: ParseOptions = {

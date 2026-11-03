@@ -213,10 +213,13 @@ export class NodeRenderer {
       for (const { tag, cls } of tagsFor(seg).reverse()) {
         target = target.createEl(tag, cls ? { cls } : undefined)
       }
+      if (seg.color) target.style.color = seg.color
+      if (seg.background) target.style.backgroundColor = seg.background
       if (seg.math) {
         try {
           const math = renderMath(seg.text, false)
           math.addClass('om-math')
+          math.setAttribute('data-om-formula', seg.text)
           target.appendChild(math)
           renderedMath = true
         } catch {

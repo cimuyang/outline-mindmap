@@ -17,11 +17,14 @@ export interface MindmapSettings {
   clickToJump: boolean
   /** 固定显示一篇笔记：开启后导图不再跟着活动笔记切换（M7。键名保持 lockFile，不迁移旧配置）。 */
   lockFile: boolean
+  mapMode: 'follow' | 'fixed' | 'independent'
   /** 默认启用短过渡；大图与系统减少动态效果时使用即时布局。 */
   gracefulAnimation: boolean
   /** 严格换行：新增 / 移动节点时，相邻标题之间补足 3 个空行（附录 A.6）。 */
   strictLineBreak: boolean
   /** 把列表项显示为导图节点。关掉后导图只画标题，列表行只是最近标题的正文。 */
+  orderedListNodes: boolean
+  deepListMarker: '-' | '1.'
   listNodes: boolean
   /** 记住每篇笔记的打开方式：用「打开为导图」转换过的笔记，下次打开直接是导图（v1.3.2）。 */
   rememberOpenAs: boolean
@@ -35,9 +38,12 @@ export interface MindmapSettings {
 export const DEFAULT_SETTINGS: MindmapSettings = {
   clickToJump: true,
   lockFile: false,
+  mapMode: 'fixed',
   gracefulAnimation: true,
   strictLineBreak: false,
   listNodes: false,
+  orderedListNodes: false,
+  deepListMarker: '-',
   rememberOpenAs: true,
   styles: defaultStyleData(),
   openAs: {},
@@ -51,9 +57,13 @@ export function normalizeSettings(raw: unknown): MindmapSettings {
     typeof o[key] === 'boolean' ? o[key] : fallback
   return {
     clickToJump: bool('clickToJump', DEFAULT_SETTINGS.clickToJump),
+    mapMode: o.mapMode === 'follow' || o.mapMode === 'fixed' || o.mapMode === 'independent'
+      ? o.mapMode : o.independentMaps === true ? 'independent' : 'fixed',
     lockFile: bool('lockFile', DEFAULT_SETTINGS.lockFile),
     gracefulAnimation: bool('gracefulAnimation', DEFAULT_SETTINGS.gracefulAnimation),
     strictLineBreak: bool('strictLineBreak', DEFAULT_SETTINGS.strictLineBreak),
+    deepListMarker: o.deepListMarker === '1.' ? '1.' : '-',
+    orderedListNodes: bool('orderedListNodes', false),
     listNodes: bool('listNodes', DEFAULT_SETTINGS.listNodes),
     rememberOpenAs: bool('rememberOpenAs', DEFAULT_SETTINGS.rememberOpenAs),
     styles: normalizeStyleData(o['styles']),
@@ -75,6 +85,7 @@ export interface MindmapHost {
   saveSettings(): Promise<void>
   /** 解析类设置变了（如「把列表项显示为节点」）：让所有导图按新规则重新解析当前笔记。 */
   reloadMindmaps(): void
+  refreshMapMode?(): void
   /** 导图这一侧的「打开为笔记」：同一个叶子就地变回 Markdown，并忘掉「以导图打开」的记忆。 */
   openAsNote(leaf: WorkspaceLeaf, file: TFile, mode?: NoteMode): Promise<void>
   openSearchResult(leaf: WorkspaceLeaf, file: TFile, state: SearchState, mode?: NoteMode): Promise<void>
@@ -93,15 +104,42 @@ export class MindmapSettingTab extends PluginSettingTab {
     const { containerEl } = this
     containerEl.empty()
 
-    this.toggle('settings.clickToJump', 'settings.clickToJumpDesc', 'clickToJump')
-    this.toggle('settings.lockFile', 'settings.lockFileDesc', 'lockFile')
-    this.toggle('settings.gracefulAnimation', 'settings.gracefulAnimationDesc', 'gracefulAnimation')
+    new Setting(containerEl).setName(t('settings.openMode')).setHeading()
+    new Setting(containerEl).setName(t('settings.mainArea')).setDesc(t('settings.mainAreaDesc')).addDropdown(dropdown => dropdown
+      .addOption('follow', t('settings.follow'))
+      .addOption('fixed', t('settings.fixed'))
+      .addOption('independent', t('settings.independentMaps'))
+      .setValue(this.host.settings.mapMode)
+      .onChange(async mode => {
+        if (mode !== 'follow' && mode !== 'fixed' && mode !== 'independent') return
+        this.host.settings.mapMode = mode
+        this.host.refreshMapMode?.()
+        await this.host.saveSettings()
+      }))
+    new Setting(containerEl).setName(t('settings.lockFile')).setDesc(t('settings.lockFileDesc'))
+      .addDropdown(dropdown => dropdown.addOption('follow', t('settings.follow')).addOption('fixed', t('settings.fixed'))
+        .setValue(this.host.settings.lockFile ? 'fixed' : 'follow').onChange(async value => {
+          this.host.settings.lockFile = value === 'fixed'
+          this.host.refreshMapMode?.()
+          await this.host.saveSettings()
+        }))
+    this.toggle('settings.rememberOpenAs', 'settings.rememberOpenAsDesc', 'rememberOpenAs')
+    new Setting(containerEl).setName(t('settings.nodes')).setHeading()
     this.toggle('settings.strictLineBreak', 'settings.strictLineBreakDesc', 'strictLineBreak')
     // 这一项影响解析结果：切完立即让已有的导图按新规则重画，不用关开一次视图
     this.toggle('settings.listNodes', 'settings.listNodesDesc', 'listNodes', () =>
       this.host.reloadMindmaps(),
     )
-    this.toggle('settings.rememberOpenAs', 'settings.rememberOpenAsDesc', 'rememberOpenAs')
+    this.toggle('settings.orderedListNodes', 'settings.orderedListNodesDesc', 'orderedListNodes', () => this.host.reloadMindmaps())
+    new Setting(containerEl).setName(t('settings.deepFormat')).setDesc(t('settings.deepFormatDesc'))
+      .addDropdown(dropdown => dropdown.addOption('-', t('settings.unordered')).addOption('1.', t('settings.ordered'))
+        .setValue(this.host.settings.deepListMarker).onChange(async value => {
+          this.host.settings.deepListMarker = value === '1.' ? '1.' : '-'
+          await this.host.saveSettings()
+        }))
+    new Setting(containerEl).setName(t('settings.interaction')).setHeading()
+    this.toggle('settings.clickToJump', 'settings.clickToJumpDesc', 'clickToJump')
+    this.toggle('settings.gracefulAnimation', 'settings.gracefulAnimationDesc', 'gracefulAnimation')
   }
 
   /** 几个开关长得一模一样，写成一个方法免得同一段代码抄五遍。 */
@@ -112,8 +150,8 @@ export class MindmapSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(this.host.settings[key]).onChange(async (value) => {
           this.host.settings[key] = value
-          await this.host.saveSettings()
           afterChange?.()
+          await this.host.saveSettings()
         }),
       )
   }

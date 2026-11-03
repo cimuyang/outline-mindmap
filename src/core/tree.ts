@@ -12,7 +12,7 @@
 
 import type { EditPlan, MindNode, MindTree, NodeKind, ParseOptions, TextEdit } from './types'
 import { isBlank, isHeadingLine, listBaseDepthOf } from './parser'
-import { serializeNode, serializeSubtree } from './serializer'
+import { serializeNode, listMarker, serializeSubtree } from './serializer'
 
 // ── 通用工具 ───────────────────────────────────────────────────
 
@@ -167,11 +167,14 @@ function baseDepthUnder(parent: MindNode | null): number {
 export function renameNode(tree: MindTree, id: string, newText: string): EditPlan {
   assertSingleLine(newText)
   const node = mustGet(tree, id)
+  const orderedPrefix = node.kind === 'list' ? /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/.exec(tree.lines[node.titleLine] ?? '')?.[0] : undefined
   return [
     {
       fromLine: node.titleLine,
       toLine: node.titleLine + 1,
-      lines: [serializeNode(newText, node.depth, node.kind, listBaseDepthOf(node))],
+      lines: [orderedPrefix === undefined
+        ? serializeNode(newText, node.depth, node.kind, listBaseDepthOf(node))
+        : orderedPrefix + newText],
     },
   ]
 }
@@ -185,6 +188,18 @@ export function renameNode(tree: MindTree, id: string, newText: string): EditPla
  * 手册 A.7.1 规则 5 说「新建节点默认 heading」，但那条是给「没有可参照的兄弟」
  * 的场景准备的——在一个列表项旁边按回车却得到一个 `#### 标题`，既突兀也不是用户意图。
  */
+function listInsertionEnd(tree: MindTree, node: MindNode): number {
+  let last = node
+  while (last.children.length) last = last.children[last.children.length - 1]!
+  const prefix = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/.exec(tree.lines[last.titleLine] ?? '')?.[0] ?? ''
+  const column = prefix.replace(/\t/g, '    ').length
+  for (let line = last.titleLine + 1; line < node.blockEnd; line++) {
+    const text = tree.lines[line] ?? ''
+    if (text.trim() && (/^[ \t]*/.exec(text)?.[0] ?? '').replace(/\t/g, '    ').length < column) return line
+  }
+  return node.blockEnd
+}
+
 export function insertSibling(
   tree: MindTree,
   refId: string,
@@ -196,8 +211,12 @@ export function insertSibling(
   if (position !== 'after') throw new Error(`不支持的插入位置：${position as string}`)
   const ref = mustGet(tree, refId)
   const kind = forcedKind(ref.depth, ref.parent, ref.kind)
-  const line = serializeNode(text, ref.depth, kind, listBaseDepthOf(ref))
-  const insertAt = ref.blockEnd
+  const source = tree.lines[ref.titleLine] ?? ''
+  const orderedPrefix = kind === 'list' && options.orderedListNodes ? /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/.exec(source)?.[0] : undefined
+  const line = orderedPrefix === undefined
+    ? serializeNode(text, ref.depth, kind, listBaseDepthOf(ref))
+    : orderedPrefix + text
+  const insertAt = ref.kind === 'list' && options.orderedListNodes ? listInsertionEnd(tree, ref) : ref.blockEnd
   return [
     {
       fromLine: insertAt,
@@ -219,18 +238,29 @@ export function insertChild(
   text: string,
   position: 'last',
   options: ParseOptions,
+  marker?: '1.' | '-',
 ): EditPlan {
   assertSingleLine(text)
   if (position !== 'last') throw new Error(`不支持的插入位置：${position as string}`)
   const parent = parentId === null ? tree.root : mustGet(tree, parentId)
   const depth = parent.depth + 1
-  assertWithinHeadings(depth, 0, options.listNodes)
+  assertWithinHeadings(depth, 0, options.listNodes || !!options.orderedListNodes)
   const lastChild = parent.children[parent.children.length - 1]
-  const kind = forcedKind(depth, parent, lastChild ? lastChild.kind : 'heading')
-  const line = serializeNode(text, depth, kind, baseDepthUnder(parent))
+  const firstList = marker ? parent.children.find(child => child.kind === 'list') : undefined
+  const kind = forcedKind(depth, parent, marker ? 'list' : lastChild ? lastChild.kind : 'heading')
+  const sample = tree.lines[(firstList ?? lastChild ?? parent).titleLine]
+  const inherited = listMarker(sample)
+  const fallback = (lastChild ?? parent).kind === 'list' ? inherited : options.deepListMarker ?? inherited
+  const listPrefix = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/.exec(tree.lines[parent.titleLine] ?? '')?.[0]
+  const indent = firstList ? /^[ \t]*/.exec(sample ?? '')?.[0] ?? '' : undefined
+  const line = kind === 'list' && (indent !== undefined || (options.orderedListNodes && listPrefix))
+    ? (indent ?? listPrefix!.replace(/[^\t]/g, ' ')) + (marker ?? fallback) + ' ' + text
+    : serializeNode(text, depth, kind, baseDepthUnder(parent), marker ?? fallback)
 
-  const insertAt = lastChild
-    ? lastChild.blockEnd
+  const insertAt = marker
+    ? firstList?.titleLine ?? (parent.kind === 'list' && options.orderedListNodes ? listInsertionEnd(tree, parent) : parent.bodyEnd)
+    : lastChild
+    ? lastChild.kind === 'list' && options.orderedListNodes ? listInsertionEnd(tree, lastChild) : lastChild.blockEnd
     : parent.depth === 0
       ? contentEnd(tree.lines)
       : parent.bodyEnd
@@ -340,7 +370,7 @@ export function moveSubtree(
 
   // 第 3、4 步：新的 depth 与 kind
   const newDepth = newParent ? newParent.depth + 1 : 1
-  assertWithinHeadings(newDepth, maxDepthDrop(node), options.listNodes)
+  assertWithinHeadings(newDepth, maxDepthDrop(node), options.listNodes || !!options.orderedListNodes)
   const newKind: NodeKind = newParent ? forcedKind(newDepth, newParent, node.kind) : 'heading'
 
   // 第 5 步：重新序列化整棵子树（正文随行）
@@ -351,6 +381,7 @@ export function moveSubtree(
     newKind,
     baseDepthUnder(newParent),
     options,
+    newParent?.kind === 'list' ? tree.lines[newParent.titleLine] : undefined,
   )
 
   // 第 7 步：插入点落在源范围【内部】即为非法
@@ -475,7 +506,7 @@ export function visibleAncestor(tree: MindTree, id: string): string | null {
 export type EditIntent =
   | { type: 'rename'; id: string }
   | { type: 'sibling'; refId: string }
-  | { type: 'child'; parentId: string | null }
+  | { type: 'child'; parentId: string | null; marker?: '1.' | '-' }
   | { type: 'root' }
 
 export interface EditOutcome {
@@ -530,9 +561,9 @@ export function planEdit(
     case 'child': {
       const parent = intent.parentId === null ? tree.root : mustGet(tree, intent.parentId)
       return {
-        plan: insertChild(tree, intent.parentId, text, 'last', options),
+        plan: insertChild(tree, intent.parentId, text, 'last', options, intent.marker),
         parentId: intent.parentId,
-        index: parent.children.length,
+        index: intent.marker ? 0 : parent.children.length,
       }
     }
     case 'root':

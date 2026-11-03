@@ -63,12 +63,12 @@
   --om-level-6: 143, 189, 213;
 }
 
-.om-root.om-level-colors .om-node.om-l1 { --om-level-rgb: var(--om-level-1); }
-.om-root.om-level-colors .om-node.om-l2 { --om-level-rgb: var(--om-level-2); }
-.om-root.om-level-colors .om-node.om-l3 { --om-level-rgb: var(--om-level-3); }
-.om-root.om-level-colors .om-node.om-l4 { --om-level-rgb: var(--om-level-4); }
-.om-root.om-level-colors .om-node.om-l5 { --om-level-rgb: var(--om-level-5); }
-.om-root.om-level-colors .om-node.om-l6 { --om-level-rgb: var(--om-level-6); }
+.om-root.om-level-colors .om-node.om-l1 { --om-level-rgb: var(--om-custom-level-1, var(--om-level-1)); }
+.om-root.om-level-colors .om-node.om-l2 { --om-level-rgb: var(--om-custom-level-2, var(--om-level-2)); }
+.om-root.om-level-colors .om-node.om-l3 { --om-level-rgb: var(--om-custom-level-3, var(--om-level-3)); }
+.om-root.om-level-colors .om-node.om-l4 { --om-level-rgb: var(--om-custom-level-4, var(--om-level-4)); }
+.om-root.om-level-colors .om-node.om-l5 { --om-level-rgb: var(--om-custom-level-5, var(--om-level-5)); }
+.om-root.om-level-colors .om-node.om-l6 { --om-level-rgb: var(--om-custom-level-6, var(--om-level-6)); }
 
 .om-root.om-level-colors .om-node {
   color: rgb(var(--om-level-rgb));
@@ -122,6 +122,7 @@
 }
 
 .om-viewport {
+  background: var(--om-custom-background, transparent);
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -209,7 +210,7 @@
 }
 
 .om-edges {
-  stroke: var(--om-edge);
+  stroke: var(--om-custom-edge, var(--om-edge));
   stroke-width: 1.5px;
   fill: none;
 }
@@ -511,14 +512,15 @@
 
 .om-style-modal .om-style-actions {
   position: sticky;
-  top: 0;
+  bottom: 0;
   z-index: 1;
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 8px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--background-modifier-border);
+  padding-block: 10px;
+  border-top: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
 }
 
@@ -572,4 +574,54 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--text-normal);
+}
+.om-export-layer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.om-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+}
+
+.om-export-actions > button { flex: 1; }
+
+.om-appearance-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.om-appearance-tabs > button {
+  flex: 1;
+  box-shadow: none;
+  background: transparent;
+}
+
+.om-appearance-tabs > button[aria-pressed='true'] {
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.om-style-section {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-block: 12px;
+}
+
+.om-style-section > summary {
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}
+
+.om-node-text .om-inline-code {
+  border-radius: 0.3em;
+  font-size: inherit;
+  background: var(--background-modifier-hover);
+  color: inherit;
+  font-family: var(--font-monospace);
 }

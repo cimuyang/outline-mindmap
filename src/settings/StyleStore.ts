@@ -25,6 +25,9 @@ export interface MindmapStyle {
   fontScale: number
   /** 多彩标题：按层级给节点文字与边框着色（层级色板在 styles.css）。 */
   colorByLevel: boolean
+  background?: string
+  edgeColor?: string
+  levelColors?: string[]
 }
 
 /** 各项的取值范围。滑块与「从 data.json 读进来的脏数据」共用同一份，免得两边对不上。 */
@@ -84,9 +87,20 @@ function pick<T extends string>(raw: unknown, allowed: readonly T[], fallback: T
  * 用户手改过配置文件、或者插件降级回旧版本，都可能读到缺字段 / 超范围的值；
  * 这些值会直接喂给布局算法，不收拢就会画出一团乱麻。
  */
+function hexColor(value: unknown): string {
+  return typeof value === 'string' && /^#[\da-f]{6}$/i.test(value) ? value : ''
+}
+
 export function normalizeStyle(raw: unknown, base: MindmapStyle = DEFAULT_STYLE): MindmapStyle {
   const o = (raw ?? {}) as Record<string, unknown>
+  const background = hexColor(o.background ?? base.background)
+  const edgeColor = hexColor(o.edgeColor ?? base.edgeColor)
+  const source = Array.isArray(o.levelColors) ? o.levelColors : base.levelColors ?? []
+  const levelColors = Array.from({ length: 6 }, (_, i) => hexColor(source[i]))
   return {
+    ...(background || o.background === '' ? { background } : {}),
+    ...(edgeColor || o.edgeColor === '' ? { edgeColor } : {}),
+    ...(levelColors.some(Boolean) || Array.isArray(o.levelColors) ? { levelColors } : {}),
     direction: pick(o['direction'], ['right', 'left', 'both'], base.direction),
     hGap: num(o['hGap'], base.hGap, STYLE_LIMITS.hGap),
     vGap: num(o['vGap'], base.vGap, STYLE_LIMITS.vGap),
@@ -121,6 +135,8 @@ export function sameStyle(a: MindmapStyle, b: MindmapStyle): boolean {
     a.branch === b.branch &&
     a.scheme === b.scheme &&
     a.fontScale === b.fontScale &&
+    a.background === b.background && a.edgeColor === b.edgeColor &&
+    (a.levelColors ?? []).join(',') === (b.levelColors ?? []).join(',') &&
     a.colorByLevel === b.colorByLevel
   )
 }

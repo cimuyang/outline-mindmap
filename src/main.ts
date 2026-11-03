@@ -205,6 +205,10 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
   }
 
   /** 解析类设置变了：所有开着的导图按新规则重新解析当前笔记（MindmapHost）。 */
+  refreshMapMode(): void {
+    for (const view of this.mindmapViews()) void view.refreshMapMode()
+  }
+
   reloadMindmaps(): void {
     for (const view of this.mindmapViews()) void view.reparse()
   }
@@ -303,14 +307,41 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
    *
    * @param where `'tab'` = 主页面区新标签页；`'right'` = 右侧边栏
    */
+  private openingMaps = Promise.resolve()
+
   private async activateView(where: 'tab' | 'right'): Promise<void> {
     const workspace = this.app.workspace
     const inSidebar = (leaf: WorkspaceLeaf): boolean => leaf.getRoot() === workspace.rightSplit
 
+    if (where === 'tab') {
+      const file = workspace.getActiveViewOfType(MindmapView)?.sourceFile ?? workspace.getActiveFile()
+      if (!file || file.extension !== 'md') return
+      const opening = this.openingMaps.then(async () => {
+        const maps = workspace.getLeavesOfType(VIEW_TYPE_MINDMAP)
+          .filter(leaf => !inSidebar(leaf) && leaf.getViewState().state?.commandMap === true)
+        const matching = maps.find(leaf => leaf.getViewState().state?.file === file.path)
+        const leaf = matching ?? (this.settings.mapMode !== 'independent' ? maps[0] : undefined)
+          ?? workspace.getLeaf('tab')
+        if (!matching) {
+          await leaf.setViewState({
+            type: VIEW_TYPE_MINDMAP, active: true,
+            state: { file: file.path, pinned: true, commandMap: true },
+          })
+        }
+        await workspace.revealLeaf(leaf)
+      })
+      this.openingMaps = opening.catch(error => {
+        console.error(error)
+        new Notice(t('notice.openMapFailed'))
+      })
+      await this.openingMaps
+      return
+    }
+
     const existing = workspace
       .getLeavesOfType(VIEW_TYPE_MINDMAP)
-      .find((leaf) => inSidebar(leaf) === (where === 'right'))
-    const leaf = existing ?? (where === 'right' ? workspace.getRightLeaf(false) : workspace.getLeaf('tab'))
+      .find((leaf) => inSidebar(leaf))
+    const leaf = existing ?? workspace.getRightLeaf(false)
     if (!leaf) return
     if (!existing) await leaf.setViewState({ type: VIEW_TYPE_MINDMAP, active: true })
     await workspace.revealLeaf(leaf)

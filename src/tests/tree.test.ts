@@ -135,6 +135,21 @@ describe('insertSibling', () => {
 // ── insertChild ────────────────────────────────────────────────
 
 describe('insertChild', () => {
+  it('round-trips ordered lists and inserts either list type ahead of headings', () => {
+    const options = { ...LOOSE, orderedListNodes: true }
+    const tree = parse('# A\n3. One\n   1. Nested\n## Heading', options)
+    const ordered = tree.root.children[0]!.children[0]!
+    expect(ordered.children[0]?.text).toBe('Nested')
+    expect(applyPlan(tree.lines, renameNode(tree, ordered.id, 'Renamed'))[1]).toBe('3. Renamed')
+    const parent = tree.root.children[0]!
+    for (const marker of ['1.', '-'] as const) {
+      const lines = applyPlan(tree.lines, insertChild(tree, parent.id, 'Added', 'last', options, marker))
+      expect(lines[1]).toBe(marker + ' Added')
+      const children = parse(lines.join('\n'), options).root.children[0]!.children
+      expect(children.map(child => child.text)).toEqual(['Added', 'One', 'Heading'])
+    }
+  })
+
   it('正常：无子节点时插在 bodyEnd 处，depth = 父 + 1', () => {
     const tree = parse('# 一\n正文\n# 二\n')
     const plan = insertChild(tree, idOf(tree, '一'), '子', 'last', LOOSE)

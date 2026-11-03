@@ -12,6 +12,23 @@ const plain = (text: string) => ({
 })
 
 describe('parseInline', () => {
+  it('renders code spans literally and preserves adjacent text', () => {
+    expect(parseInline('前`` `**<span>**` ``后')).toEqual([
+      plain('前'),
+      { ...plain('`**<span>**`'), code: true },
+      plain('后'),
+    ])
+    expect(plainText('未闭合 ``代码`')).toBe('未闭合 ``代码`')
+  })
+
+  it('recognizes a color span without accepting other attributes', () => {
+    expect(parseInline('<span style="color:red;">红色文字</span>')).toEqual([
+      { ...plain('红色文字'), color: 'red' },
+    ])
+    const unsupported = '<span onclick="run()" style="color:red;">文字</span>'
+    expect(plainText(unsupported)).toBe(unsupported)
+  })
+
   it('纯文字只有一段，且不带任何样式', () => {
     expect(parseInline('普通标题')).toEqual([plain('普通标题')])
   })
