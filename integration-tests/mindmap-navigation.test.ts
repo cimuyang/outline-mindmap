@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('../src/settings/localState', () => ({ readLocalState: () => null, writeLocalState: vi.fn() }))
 import { MindmapView } from '../src/view/MindmapView'
 import { parse } from '../src/core/parser'
 import { FakeElement, findByClass, textOf } from './fake-dom'

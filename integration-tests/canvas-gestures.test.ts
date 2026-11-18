@@ -14,7 +14,7 @@ function setup(hooks: any = {}) {
     constructor(callback: any) { resize = callback }
     observe() {} disconnect = disconnect
   })
-  vi.stubGlobal('window', { requestAnimationFrame: (callback: () => void) => {
+  vi.stubGlobal('window', { setTimeout, clearTimeout, requestAnimationFrame: (callback: () => void) => {
     frames.push(callback); return frames.length
   }, cancelAnimationFrame: vi.fn() })
   const host = new FakeElement()

@@ -17,7 +17,7 @@ describe('assembled map view lifecycle', () => {
       constructor(fn: any) { resize = fn }
       observe() {} disconnect() {}
     })
-    const win = { performance, requestAnimationFrame: vi.fn(() => 1), cancelAnimationFrame: vi.fn(),
+    const win = { localStorage: { getItem: () => null }, setTimeout, clearTimeout, performance, requestAnimationFrame: vi.fn(() => 1), cancelAnimationFrame: vi.fn(),
       matchMedia: () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }) }
     vi.stubGlobal('window', win)
     const settings = normalizeSettings(null), save = vi.fn()
@@ -30,9 +30,9 @@ describe('assembled map view lifecycle', () => {
     const markdown = new MarkdownView()
     markdown.file = file; markdown.editor = { getValue: () => source }; markdown.getMode = () => mode
     const leaf = { view: markdown, getViewState: () => ({ state: { file: file.path } }) }
-    const app: any = { workspace: { getActiveFile: () => file,
+    const app: any = { loadLocalStorage: () => null, workspace: { getActiveFile: () => file,
       getLeavesOfType: () => [leaf], on: (name: string, callback: any) => events.set(name, callback) },
-      vault: { on: vi.fn(), cachedRead: async () => source } }
+      vault: { adapter: { getResourcePath: () => 'test/lifecycle' }, on: vi.fn(), cachedRead: async () => source } }
     const view: any = new MindmapView({ app } as any, { settings, preferences,
       styles: new StyleStore(settings.styles, save), fileHistory: new FileHistory() } as any)
     view.contentEl.ownerDocument = { defaultView: win }

@@ -15,10 +15,12 @@ export class BodyCard extends Component {
   private readonly status: HTMLElement
   private readonly edit: HTMLButtonElement
   private readonly pin: HTMLButtonElement
+  private readonly footer: HTMLElement
   private readonly reloadButton: HTMLButtonElement
   private readonly title: HTMLElement
   private saved: string
-  private timer: ReturnType<typeof setTimeout> | undefined
+  private timer: number | undefined
+  private timerWindow?: Window
   private running: Promise<boolean> | null = null
   private pendingSince = 0
   private composing = false
@@ -65,9 +67,7 @@ export class BodyCard extends Component {
     button('x', label('关闭', 'Close'), () => { void this.close() })
     this.preview = this.el.createDiv({ cls: 'om-body-preview markdown-rendered' })
     this.input = this.el.createEl('textarea', { cls: 'om-body-input' })
-    const inputLabel = this.el.createEl('span', { cls: 'om-sr-only', text: label('正文', 'Body') })
-    inputLabel.id = 'om-body-' + Math.random().toString(36).slice(2)
-    this.input.setAttribute('aria-labelledby', inputLabel.id)
+    this.input.setAttribute('aria-label', label('正文', 'Body'))
     this.input.value = draft ?? text
     this.input.hidden = !writable
     this.preview.hidden = !this.input.hidden
@@ -75,16 +75,16 @@ export class BodyCard extends Component {
       setIcon(this.edit, 'book-open')
       this.edit.setAttribute('aria-label', label('阅读正文', 'Read body'))
     }
-    const footer = this.el.createDiv({ cls: 'om-body-footer' })
+    const footer = this.footer = this.el.createDiv({ cls: 'om-body-footer' })
     this.status = header.createDiv({ cls: 'om-body-status' })
     header.insertBefore(this.status, this.edit)
     this.status.setAttribute('aria-live', 'polite')
     this.reloadButton = footer.createEl('button', { text: label('保留草稿并重载', 'Keep draft and reload') })
-    this.reloadButton.hidden = true
+    this.footer.hidden = true
     this.reloadButton.onclick = () => { if (this.dirty) hooks.draft(this.value); hooks.reload() }
     this.setWritable(writable)
     this.state(draft === undefined ? label('已保存', 'Saved') : label('已恢复草稿 · 请检查后保存', 'Draft restored · review before saving'))
-    this.registerDomEvent(this.input, 'compositionstart', () => { this.composing = true; clearTimeout(this.timer) })
+    this.registerDomEvent(this.input, 'compositionstart', () => { this.composing = true; this.timerWindow?.clearTimeout(this.timer) })
     this.registerDomEvent(this.input, 'compositionend', () => { this.composing = false; this.schedule() })
     this.registerDomEvent(this.input, 'blur', () => { void this.flush() })
     this.registerDomEvent(this.input, 'input', () => { hooks.draft(this.dirty ? this.value : null); this.schedule() })
@@ -101,8 +101,8 @@ export class BodyCard extends Component {
       const x = event.clientX, y = event.clientY
       header.setPointerCapture(event.pointerId)
       const move = (next: PointerEvent) => {
-        this.el.style.left = `${Math.max(0, Math.min(host.clientWidth - this.el.offsetWidth, rect.left - parent.left + next.clientX - x))}px`
-        this.el.style.top = `${Math.max(0, Math.min(host.clientHeight - 44, rect.top - parent.top + next.clientY - y))}px`
+        this.el.setCssProps({ '--om-card-left': `${Math.max(0, Math.min(host.clientWidth - this.el.offsetWidth, rect.left - parent.left + next.clientX - x))}px` })
+        this.el.setCssProps({ '--om-card-top': `${Math.max(0, Math.min(host.clientHeight - 44, rect.top - parent.top + next.clientY - y))}px` })
       }
       const end = () => { header.removeEventListener('pointermove', move); header.removeEventListener('pointerup', end); header.removeEventListener('lostpointercapture', end) }
       header.addEventListener('pointermove', move)
@@ -127,8 +127,8 @@ export class BodyCard extends Component {
           const minW = Math.min(280, host.clientWidth), minH = Math.min(220, host.clientHeight)
           if (edge.includes('e')) this.el.style.width = Math.max(minW, Math.min(host.clientWidth - left, width + dx)) + 'px'
           if (edge.includes('s')) this.el.style.height = Math.max(minH, Math.min(host.clientHeight - top, height + dy)) + 'px'
-          if (edge.includes('w')) { const w = Math.max(minW, Math.min(left + width, width - dx)); this.el.style.width = w + 'px'; this.el.style.left = left + width - w + 'px' }
-          if (edge.includes('n')) { const h = Math.max(minH, Math.min(top + height, height - dy)); this.el.style.height = h + 'px'; this.el.style.top = top + height - h + 'px' }
+          if (edge.includes('w')) { const w = Math.max(minW, Math.min(left + width, width - dx)); this.el.style.width = w + 'px'; this.el.setCssProps({ '--om-card-left': left + width - w + 'px' }) }
+          if (edge.includes('n')) { const h = Math.max(minH, Math.min(top + height, height - dy)); this.el.style.height = h + 'px'; this.el.setCssProps({ '--om-card-top': top + height - h + 'px' }) }
 
         }
       }
@@ -151,7 +151,7 @@ export class BodyCard extends Component {
       })
     }
     this.el.toggleClass('is-pinned', value)
-    this.el.style.width = ''; this.el.style.height = ''
+    this.el.setCssStyles({ width: '', height: '' })
     this.el.parentElement?.toggleClass('om-body-pinned', !!this.el.parentElement.querySelector('.om-body-card.is-pinned'))
     this.pin.setAttribute('aria-pressed', String(value))
   }
@@ -159,7 +159,7 @@ export class BodyCard extends Component {
     this.writable = value
     this.input.readOnly = !value
     this.edit.disabled = !value
-    if (!value) clearTimeout(this.timer)
+    if (!value) this.timerWindow?.clearTimeout(this.timer)
   }
   setTitle(title: string): void { this.title.setText(title) }
   update(text: string): void {
@@ -170,24 +170,27 @@ export class BodyCard extends Component {
     this.saved = text; this.input.value = text
     this.input.setSelectionRange(Math.min(start, text.length), Math.min(end, text.length))
     this.input.scrollTop = scroll
-    this.conflict = false; this.reloadButton.hidden = true
+    this.conflict = false; this.footer.hidden = true
     this.state(label('已同步', 'Synced')); this.render()
   }
   markConflict(): void {
-    clearTimeout(this.timer); this.conflict = true; this.reloadButton.hidden = false
+    this.timerWindow?.clearTimeout(this.timer); this.conflict = true; this.footer.hidden = false
     if (this.dirty) this.hooks.draft(this.value)
     this.state(label('原文已变化 · 草稿已保留', 'Source changed · draft preserved'))
   }
   private state(text: string): void { this.status.setText(text); this.status.toggleClass('is-saved', text === label('已保存', 'Saved')) }
   private schedule(): void {
-    clearTimeout(this.timer)
+    this.timerWindow?.clearTimeout(this.timer)
     if (!this.dirty) { this.state(label('已保存', 'Saved')); return }
     this.state(label('未保存', 'Unsaved'))
     if (!this.pendingSince) this.pendingSince = Date.now()
-    if (!this.composing && !this.conflict && this.writable) this.timer = setTimeout(() => { void this.flush() }, Math.max(0, Math.min(400, 2000 - (Date.now() - this.pendingSince))))
+    if (!this.composing && !this.conflict && this.writable) {
+      this.timerWindow = this.el.ownerDocument.defaultView!
+      this.timer = this.timerWindow.setTimeout(() => { void this.flush() }, Math.max(0, Math.min(400, 2000 - (Date.now() - this.pendingSince))))
+    }
   }
   async flush(): Promise<boolean> {
-    clearTimeout(this.timer)
+    this.timerWindow?.clearTimeout(this.timer)
     if (this.running) { await this.running; return this.dirty ? this.flush() : true }
     if (!this.dirty) return true
     if (this.composing || this.conflict || !this.writable || this.disposed) return false
@@ -223,13 +226,13 @@ export class BodyCard extends Component {
     const generation = ++this.generation
     if (this.rendering) this.removeChild(this.rendering)
     this.rendering = this.addChild(new Component())
-    const target = this.preview.ownerDocument.createElement('div')
+    const target = this.preview.ownerDocument.createDocumentFragment().createDiv()
     void MarkdownRenderer.render(this.app, this.value || label('暂无正文', 'No body text'), target, this.path, this.rendering)
       .then(() => { if (!this.disposed && generation === this.generation) { this.preview.empty(); this.preview.appendChild(target) } })
       .catch(() => { if (!this.disposed && generation === this.generation) this.preview.setText(this.value) })
   }
   override onunload(): void {
-    this.disposed = true; this.generation++; clearTimeout(this.timer)
+    this.disposed = true; this.generation++; this.timerWindow?.clearTimeout(this.timer)
     if (this.dirty) this.hooks.draft(this.value)
     this.el.remove()
   }

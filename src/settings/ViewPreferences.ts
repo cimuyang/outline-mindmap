@@ -39,7 +39,7 @@ export function normalizeViewPreferences(raw: unknown): ViewPreferenceData {
 /** Per-note view preferences; only manual locks are broadcast to other views. */
 export class ViewPreferences {
   private readonly listeners = new Set<() => void>()
-  private timer: ReturnType<typeof setTimeout> | null = null
+  private timer: number | null = null
 
   constructor(private readonly data: ViewPreferenceData, private readonly persist: () => void) {}
 
@@ -67,8 +67,8 @@ export class ViewPreferences {
     const previous = this.data[path]?.viewport
     if (previous && previous.scale === viewport.scale && previous.x === viewport.x && previous.y === viewport.y) return
     this.data[path] = { locked: this.isLocked(path), viewport }
-    if (this.timer !== null) clearTimeout(this.timer)
-    this.timer = setTimeout(() => this.flush(), 250)
+    if (this.timer !== null) window.clearTimeout(this.timer)
+    this.timer = window.setTimeout(() => this.flush(), 250)
   }
 
   rename(oldPath: string, newPath: string): void {
@@ -106,7 +106,7 @@ export class ViewPreferences {
   }
 
   private saveNow(): void {
-    if (this.timer !== null) clearTimeout(this.timer)
+    if (this.timer !== null) window.clearTimeout(this.timer)
     this.timer = null
     this.persist()
   }

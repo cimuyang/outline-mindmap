@@ -59,7 +59,8 @@ export class Canvas {
   private animated = false
   /** 上一次写进 style 的 transition，避免每帧都往 DOM 里塞同一个字符串。 */
   private transition = ''
-  private settleTimer: ReturnType<typeof setTimeout> | undefined
+  private timerWindow?: Window
+  private settleTimer: number | undefined
 
   /**
    * @param onResize 视口尺寸变化后的回调。视图刚打开时容器尺寸还是 0，
@@ -101,7 +102,7 @@ export class Canvas {
   }
 
   destroy(): void {
-    clearTimeout(this.settleTimer)
+    this.timerWindow?.clearTimeout(this.settleTimer)
     this.observer.disconnect()
     this.cancelGesture()
     this.viewport.removeEventListener('pointerdown', this.onPointerDown, true)
@@ -422,7 +423,7 @@ export class Canvas {
   }
 
   private write(animate: boolean): void {
-    const transition = animate && this.animated ? `transform ${MOVE_MS}ms ease-out` : ''
+    const transition = animate && this.animated ? `transform var(--om-pan-duration, ${MOVE_MS}ms) ease-out` : ''
     if (this.transition !== transition) {
       this.content.setCssStyles({ transition })
       this.transition = transition
@@ -430,8 +431,9 @@ export class Canvas {
     this.content.setCssStyles({
       transform: `translate(${this.tx}px, ${this.ty}px) scale(${this.scale})`,
     })
-    clearTimeout(this.settleTimer)
-    this.settleTimer = setTimeout(() => {
+    this.timerWindow?.clearTimeout(this.settleTimer)
+    this.timerWindow = this.viewport.ownerDocument.defaultView!
+    this.settleTimer = this.timerWindow.setTimeout(() => {
       const ratio = this.content.ownerDocument.defaultView?.devicePixelRatio || 1
       this.tx = Math.round(this.tx * ratio) / ratio
       this.ty = Math.round(this.ty * ratio) / ratio

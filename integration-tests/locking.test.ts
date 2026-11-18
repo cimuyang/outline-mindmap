@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../src/settings/localState', () => ({ readLocalState: () => null, writeLocalState: vi.fn() }))
 import { MindmapView } from '../src/view/MindmapView'
 import { Toolbar } from '../src/view/Toolbar'
 import { DocumentBridge } from '../src/doc/DocumentBridge'
@@ -13,6 +15,7 @@ import { MarkdownView, TFile } from './obsidian-runtime'
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 function setup(preferences = new ViewPreferences({}, () => {})) {
+  vi.stubGlobal('window', globalThis)
   const settings = normalizeSettings(null)
   const file = new TFile('a.md')
   const leaves: any[] = []

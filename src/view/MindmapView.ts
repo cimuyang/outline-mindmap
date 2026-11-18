@@ -1,3 +1,4 @@
+import { readLocalState, writeLocalState } from '../settings/localState'
 /**
  * 导图视图。M5 起可编辑。
  *
@@ -916,7 +917,7 @@ export class MindmapView extends ItemView {
     if (this.search?.path !== next?.path) this.clearSearch()
     this.cancelSession()
     this.file = next
-    this.headingLevel = Number(this.app.loadLocalStorage?.('outline-mindmap:level:' + next?.path) ?? Math.max(0, this.host.settings.initialLevel))
+    this.headingLevel = Number((next && readLocalState(this.app, 'outline-mindmap:level:' + next.path)) ?? Math.max(0, this.host.settings.initialLevel))
     this.styleViewport = undefined
     this.previewingStyle = false
     if (!this.pinned) this.noteMode = 'source'
@@ -1519,7 +1520,7 @@ export class MindmapView extends ItemView {
   }
 
   private rememberLevel(level: number): void {
-    if (this.file) this.app.saveLocalStorage?.('outline-mindmap:level:' + this.file.path, level)
+    if (this.file) writeLocalState(this.app, 'outline-mindmap:level:' + this.file.path, level)
   }
   private chooseLevel(level: number): void {
     if (!this.tree) return
@@ -1589,11 +1590,11 @@ export class MindmapView extends ItemView {
     this.bodySession = session
     const key = 'outline-mindmap:body-draft:' + file.path + ':' + node.titleLine
     const source = readBody(session.base, range)
-    const recovered: unknown = this.app.loadLocalStorage(key)
+    const recovered: unknown = readLocalState(this.app, key)
     const draft = restore && recovered && typeof recovered === 'object' &&
       'text' in recovered && typeof recovered.text === 'string' && 'title' in recovered && recovered.title === node.text ? recovered.text : undefined
     const card = new BodyCard(this.contentEl, this.app, file.path, node.text, source, this.canEdit(), {
-      draft: value => { this.app.saveLocalStorage(key, value === null ? null : { text: value, title: session.title, source: readBody(session.base, session.range) }) },
+      draft: value => { writeLocalState(this.app, key, value === null ? null : { text: value, title: session.title, source: readBody(session.base, session.range) }) },
       close: () => {
         this.retainedBodies.delete(card); this.removeChild(card)
         if (this.bodyCard === card) { this.bodyCard = null; this.bodySession = null }
@@ -1626,8 +1627,8 @@ export class MindmapView extends ItemView {
     this.bodyCard = card; this.addChild(card)
     card.setPinned(pinned)
     card.el.addEventListener('pointerdown', () => {
-      for (const element of Array.from(this.contentEl.querySelectorAll<HTMLElement>('.om-body-card'))) element.style.zIndex = '20'
-      card.el.style.zIndex = '21'
+      for (const element of Array.from(this.contentEl.querySelectorAll<HTMLElement>('.om-body-card'))) element.removeClass('is-front')
+      card.el.addClass('is-front')
     })
     if (focus) card.el.querySelector('textarea')?.focus({ preventScroll: true })
     if (focus) { this.setSelection(node.id); this.nodeRenderer.setSelection(this.selection) }
@@ -1635,8 +1636,8 @@ export class MindmapView extends ItemView {
     const anchor = this.contentEl.querySelector<HTMLElement>(`[data-node-id="${node.id}"]`)
     if (anchor) {
       const rect = anchor.getBoundingClientRect(), host = this.contentEl.getBoundingClientRect()
-      card.el.style.left = `${Math.max(12, Math.min(rect.right - host.left + 12, host.width - 432))}px`
-      card.el.style.top = `${Math.max(56, Math.min(rect.top - host.top, host.height - 300))}px`
+      card.el.setCssProps({ '--om-card-left': `${Math.max(12, Math.min(rect.right - host.left + 12, host.width - 432))}px` })
+      card.el.setCssProps({ '--om-card-top': `${Math.max(56, Math.min(rect.top - host.top, host.height - 300))}px` })
     }
   }
 

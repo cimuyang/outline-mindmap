@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../src/settings/localState', () => ({ readLocalState: () => null, writeLocalState: vi.fn() }))
 import { MindmapView } from '../src/view/MindmapView'
 import { NodeRenderer } from '../src/view/NodeRenderer'
 import { Canvas } from '../src/view/Canvas'

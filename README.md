@@ -199,6 +199,7 @@ Before publishing, run `npm test` and `npm run build`. Keep `manifest.json`,
 
 ### v1.3.8
 
+- Improved body card, pop-out window and settings search compatibility.
 - Simplified body cards and node context menus. Resize floating cards from any edge or corner. Fixed sizing when docking.
 - Fixed the body panel stealing keyboard focus and incorrect targets for multi-selection menus and list-branch pastes.
 - Fixed search and expansion with heading filters, navigation when a note is open in multiple tabs, and missing node underlines in exports.

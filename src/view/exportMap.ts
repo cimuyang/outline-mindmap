@@ -136,10 +136,10 @@ export async function exportMap(
     }
     const source = URL.createObjectURL(blob)
     try {
-      const image = doc.createElement('img')
+      const image = doc.createDocumentFragment().createEl('img')
       image.src = source
       await image.decode()
-      const canvas = doc.createElement('canvas')
+      const canvas = doc.createDocumentFragment().createEl('canvas')
       canvas.width = width * density
       canvas.height = height * density
       const context = canvas.getContext('2d')
@@ -158,10 +158,9 @@ export async function exportMap(
     }
   }
   const url = URL.createObjectURL(blob)
-  const link = doc.createElement('a')
+  const link = doc.body.createEl('a')
   link.href = url
   link.download = name + '.' + format
-  doc.body.appendChild(link)
   try {
     link.click()
   } finally {

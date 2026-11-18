@@ -49,7 +49,7 @@ export function searchTargets(tree: MindTree, state: SearchState): SearchTarget[
 }
 
 /** Scoped method interception that composes with other plugins and becomes inert on disposal. */
-export function observeEphemeralState<T extends { setEphemeralState(state: unknown): void }>(
+export function observeEphemeralState<T extends { setEphemeralState: (this: T, state: unknown) => void }>(
   target: T,
   observe: (self: T, state: unknown) => void,
 ): () => void {

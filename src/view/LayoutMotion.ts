@@ -1,4 +1,4 @@
-import type { LayoutResult } from '../layout/types'
+import type { Box, LayoutResult } from '../layout/types'
 
 export const LAYOUT_MOTION_MS = 140
 export const MOTION_NODE_LIMIT = 250
@@ -50,7 +50,7 @@ export class LayoutMotion {
       this.frame = null
       const progress = Math.min(1, Math.max(0, (time - start) / LAYOUT_MOTION_MS))
       const eased = 1 - Math.pow(1 - progress, 3)
-      const boxes: LayoutResult = progress === 1 ? target : new Map()
+      const boxes: LayoutResult = progress === 1 ? target : new Map<string, Box>()
       if (progress < 1) for (const [id, b] of target) {
         const a = from.get(id) ?? b
         boxes.set(id, {

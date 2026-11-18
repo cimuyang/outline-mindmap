@@ -22,6 +22,10 @@ export class FakeClassList {
 }
 
 export class FakeElement {
+  get ownerDocument(): { defaultView: typeof globalThis } { return { defaultView: globalThis.window ?? globalThis } }
+  set ownerDocument(value: { defaultView: typeof globalThis }) {
+    Object.defineProperty(this, 'ownerDocument', { value, configurable: true, writable: true })
+  }
   readonly classList = new FakeClassList()
   readonly dataset: Record<string, string> = {}
   readonly children: Array<FakeElement | string> = []

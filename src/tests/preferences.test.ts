@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { normalizeViewPreferences, normalizeViewport, ViewPreferences } from '../settings/ViewPreferences'
 import { DEFAULT_STYLE, normalizeStyle, StyleStore, defaultStyleData } from '../settings/StyleStore'
 
-afterEach(() => vi.useRealTimers())
+beforeEach(() => vi.stubGlobal('window', globalThis))
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('per-note view preferences', () => {
   it('accepts old settings and discards malformed viewport data', () => {

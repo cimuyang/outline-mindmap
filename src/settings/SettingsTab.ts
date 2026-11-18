@@ -107,63 +107,101 @@ export class MindmapSettingTab extends PluginSettingTab {
     super(app, plugin)
   }
 
-  override display(): void {
-    const { containerEl } = this
-    containerEl.empty()
-    new Setting(containerEl).setName(label('正文与卡片', 'Body cards')).setHeading()
-    new Setting(containerEl).setName(label('启用节点正文', 'Node body')).setDesc(label('点击节点旁的正文图标直接编辑。支持自动保存、置顶保留和侧栏／底栏停靠。', 'Read next to a node or pin the body panel to keep writing.')).addToggle(toggle => toggle.setValue(this.host.settings.nodeBody).onChange(async value => { this.host.settings.nodeBody = value; await this.host.saveSettings(); this.host.reloadMindmaps() }))
+  private groups(): SettingsGroup[] {
+    return [
+      { type: 'group', heading: label('正文与卡片', 'Body cards'), items: [
+        { name: label('启用节点正文', 'Node body'), desc: label('点击节点旁的正文图标直接编辑。支持自动保存、置顶保留和侧栏／底栏停靠。', 'Read next to a node or pin the body panel to keep writing.'),
+          render: row => {
+            row.addToggle(toggle => toggle.setValue(this.host.settings.nodeBody).onChange(async value => {
+              this.host.settings.nodeBody = value
+              await this.host.saveSettings()
+              this.host.reloadMindmaps()
+            }))
+          },
+        },
+      ] },
+      { type: 'group', heading: t('settings.openMode'), items: [
+        { name: t('settings.mainArea'), desc: t('settings.mainAreaDesc'),
+          render: row => {
+            row.addDropdown(dropdown => dropdown
+              .addOption('follow', t('settings.follow'))
+              .addOption('fixed', t('settings.fixed'))
+              .addOption('independent', t('settings.independentMaps'))
+              .setValue(this.host.settings.mapMode)
+              .onChange(async mode => {
+                if (mode !== 'follow' && mode !== 'fixed' && mode !== 'independent') return
+                this.host.settings.mapMode = mode
+                this.host.refreshMapMode?.()
+                await this.host.saveSettings()
+              }))
+          },
+        },
+        { name: t('settings.lockFile'), desc: t('settings.lockFileDesc'),
+          render: row => {
+            row.addDropdown(dropdown => dropdown.addOption('follow', t('settings.follow')).addOption('fixed', t('settings.fixed'))
+                .setValue(this.host.settings.lockFile ? 'fixed' : 'follow').onChange(async value => {
+                  this.host.settings.lockFile = value === 'fixed'
+                  this.host.refreshMapMode?.()
+                  await this.host.saveSettings()
+                }))
+          },
+        },
+        this.toggle('settings.rememberOpenAs', 'settings.rememberOpenAsDesc', 'rememberOpenAs'),
+      ] },
+      { type: 'group', heading: t('settings.nodes'), items: [
+        this.toggle('settings.strictLineBreak', 'settings.strictLineBreakDesc', 'strictLineBreak'),
+        this.toggle('settings.listNodes', 'settings.listNodesDesc', 'listNodes', () => this.host.reloadMindmaps()),
+        this.toggle('settings.orderedListNodes', 'settings.orderedListNodesDesc', 'orderedListNodes', () => this.host.reloadMindmaps()),
+        { name: t('settings.deepFormat'), desc: t('settings.deepFormatDesc'),
+          render: row => {
+            row.addDropdown(dropdown => dropdown.addOption('-', t('settings.unordered')).addOption('1.', t('settings.ordered'))
+                .setValue(this.host.settings.deepListMarker).onChange(async value => {
+                  this.host.settings.deepListMarker = value === '1.' ? '1.' : '-'
+                  await this.host.saveSettings()
+                }))
+          },
+        },
+      ] },
+      { type: 'group', heading: t('settings.interaction'), items: [
+        this.toggle('settings.clickToJump', 'settings.clickToJumpDesc', 'clickToJump'),
+        this.toggle('settings.gracefulAnimation', 'settings.gracefulAnimationDesc', 'gracefulAnimation'),
+      ] },
+    ]
+  }
 
-    new Setting(containerEl).setName(t('settings.openMode')).setHeading()
-    new Setting(containerEl).setName(t('settings.mainArea')).setDesc(t('settings.mainAreaDesc')).addDropdown(dropdown => dropdown
-      .addOption('follow', t('settings.follow'))
-      .addOption('fixed', t('settings.fixed'))
-      .addOption('independent', t('settings.independentMaps'))
-      .setValue(this.host.settings.mapMode)
-      .onChange(async mode => {
-        if (mode !== 'follow' && mode !== 'fixed' && mode !== 'independent') return
-        this.host.settings.mapMode = mode
-        this.host.refreshMapMode?.()
+  override getSettingDefinitions() { return this.groups() }
+
+  override display(): void {
+    this.containerEl.empty()
+    for (const group of this.groups()) {
+      new Setting(this.containerEl).setName(group.heading).setHeading()
+      for (const item of group.items) {
+        item.render(new Setting(this.containerEl).setName(item.name).setDesc(item.desc))
+      }
+    }
+  }
+
+  private toggle(name: MsgKey, desc: MsgKey, key: BooleanSettingKey, afterChange?: () => void): SettingsRow {
+    return { name: t(name), desc: t(desc), render: row => {
+      row.addToggle(control => control.setValue(this.host.settings[key]).onChange(async value => {
+        this.host.settings[key] = value
+        afterChange?.()
         await this.host.saveSettings()
       }))
-    new Setting(containerEl).setName(t('settings.lockFile')).setDesc(t('settings.lockFileDesc'))
-      .addDropdown(dropdown => dropdown.addOption('follow', t('settings.follow')).addOption('fixed', t('settings.fixed'))
-        .setValue(this.host.settings.lockFile ? 'fixed' : 'follow').onChange(async value => {
-          this.host.settings.lockFile = value === 'fixed'
-          this.host.refreshMapMode?.()
-          await this.host.saveSettings()
-        }))
-    this.toggle('settings.rememberOpenAs', 'settings.rememberOpenAsDesc', 'rememberOpenAs')
-    new Setting(containerEl).setName(t('settings.nodes')).setHeading()
-    this.toggle('settings.strictLineBreak', 'settings.strictLineBreakDesc', 'strictLineBreak')
-    // 这一项影响解析结果：切完立即让已有的导图按新规则重画，不用关开一次视图
-    this.toggle('settings.listNodes', 'settings.listNodesDesc', 'listNodes', () =>
-      this.host.reloadMindmaps(),
-    )
-    this.toggle('settings.orderedListNodes', 'settings.orderedListNodesDesc', 'orderedListNodes', () => this.host.reloadMindmaps())
-    new Setting(containerEl).setName(t('settings.deepFormat')).setDesc(t('settings.deepFormatDesc'))
-      .addDropdown(dropdown => dropdown.addOption('-', t('settings.unordered')).addOption('1.', t('settings.ordered'))
-        .setValue(this.host.settings.deepListMarker).onChange(async value => {
-          this.host.settings.deepListMarker = value === '1.' ? '1.' : '-'
-          await this.host.saveSettings()
-        }))
-    new Setting(containerEl).setName(t('settings.interaction')).setHeading()
-    this.toggle('settings.clickToJump', 'settings.clickToJumpDesc', 'clickToJump')
-    this.toggle('settings.gracefulAnimation', 'settings.gracefulAnimationDesc', 'gracefulAnimation')
+    } }
   }
+}
 
-  /** 几个开关长得一模一样，写成一个方法免得同一段代码抄五遍。 */
-  private toggle(name: MsgKey, desc: MsgKey, key: BooleanSettingKey, afterChange?: () => void): void {
-    new Setting(this.containerEl)
-      .setName(t(name))
-      .setDesc(t(desc))
-      .addToggle((t) =>
-        t.setValue(this.host.settings[key]).onChange(async (value) => {
-          this.host.settings[key] = value
-          afterChange?.()
-          await this.host.saveSettings()
-        }),
-      )
-  }
+interface SettingsRow {
+  name: string
+  desc: string
+  render(row: Setting): void
+}
+
+interface SettingsGroup {
+  type: 'group'
+  heading: string
+  items: SettingsRow[]
 }
 
 type BooleanSettingKey = {
