@@ -13,7 +13,8 @@ function setup() {
   view.tree = parse('# Parent\n## Child')
   view.empty = new FakeElement()
   view.canvas = { setAnimated: vi.fn(), fit: vi.fn() }
-  view.nodeRenderer = { render: vi.fn() }
+  view.nodeRenderer = { render: vi.fn(), setBodyIndicators: vi.fn() }
+  view.toolbar = { setFolded: vi.fn() }
   view.connectors = { render: vi.fn() }
   view.drag = { active: false }
   view.needsFit = false

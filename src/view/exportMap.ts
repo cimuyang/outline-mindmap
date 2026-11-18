@@ -53,7 +53,7 @@ export async function exportMap(
       stroke: parseFloat(style.borderTopWidth) ? style.borderTopColor : 'none',
       'stroke-width': parseFloat(style.borderTopWidth) || 0,
     }, svg)
-    if (!parseFloat(style.borderTopWidth) && parseFloat(style.borderBottomWidth)) {
+    if (parseFloat(style.borderBottomWidth) && style.borderBottomColor !== style.borderTopColor) {
       element('line', { x1: bx, x2: bx + w, y1: by + h, y2: by + h,
         stroke: style.borderBottomColor, 'stroke-width': style.borderBottomWidth }, svg)
     }

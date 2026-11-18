@@ -53,6 +53,7 @@ export class StyleModal extends Modal {
   }
 
   override onOpen(): void {
+    this.store.setPreview(this.path, { ...this.draft })
     this.modalEl.addClass('om-style-modal')
     const { contentEl } = this
     contentEl.empty()

@@ -31,6 +31,8 @@ export interface MindNode {
 
   /** 视图状态，不属于文档，不落盘。 */
   collapsed: boolean
+  /** Temporary heading-level filter; never serialized. */
+  viewHidden?: boolean
 }
 
 export interface MindTree {

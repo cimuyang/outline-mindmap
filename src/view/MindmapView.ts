@@ -22,6 +22,7 @@ import {
   type ViewStateResult,
   type WorkspaceLeaf,
 } from 'obsidian'
+import { selectedBranches, copyBranches, pastePlan } from '../core/clipboard'
 import { applyPlan } from '../core/editplan'
 import { joinLines, parse } from '../core/parser'
 import { reconcile } from '../core/reconcile'
@@ -58,6 +59,10 @@ import { DEFAULT_STYLE, type MindmapStyle } from '../settings/StyleStore'
 import type { NoteMode } from '../settings/OpenAsStore'
 import type { ViewportState } from '../settings/ViewPreferences'
 import { t } from '../i18n'
+import { clearHeadingFilter, showHeadingLevel } from '../core/folding'
+import { bodyIndicators, bodyRange, readBody, bodyPlan, rebaseBody, type BodyRange } from '../core/body'
+import { label } from './strings'
+import { BodyCard } from './BodyCard'
 import { Canvas } from './Canvas'
 import { Connectors } from './Connectors'
 import { DragController, subtreeIds, type DropResult } from './DragController'
@@ -92,6 +97,13 @@ interface Session {
 }
 
 export class MindmapView extends ItemView {
+  private retainedBodies = new Map<BodyCard, NonNullable<MindmapView['bodySession']>>()
+  private bodyCard: BodyCard | null = null
+  private bodySession: { file: TFile; base: string[]; range: BodyRange; title: string; writing: boolean } | null = null
+  private bodyOpenGeneration = 0
+  private loadGeneration = 0
+  private headingLevel = 0
+  private static clipboardSource: { text: string; path: string } | null = null
   private canvas!: Canvas
   private nodeRenderer!: NodeRenderer
   private connectors!: Connectors
@@ -234,6 +246,7 @@ export class MindmapView extends ItemView {
     this.nodeRenderer.setSearch(highlights)
     const first = targets.find(target => target.node)
     if (request.pending && first?.node) {
+      this.headingLevel = 0; this.rememberLevel(0); clearHeadingFilter(tree)
       for (const target of targets) {
         for (let parent = target.node?.parent; parent; parent = parent.parent) parent.collapsed = false
       }
@@ -325,6 +338,8 @@ export class MindmapView extends ItemView {
     if (changed || force) {
       this.contentEl.toggleClass('is-locked', locked)
       this.toolbar.setLocked(locked, forced, !!this.file)
+      this.bodyCard?.setWritable(!locked)
+      for (const card of this.retainedBodies.keys()) card.setWritable(!locked)
     }
   }
 
@@ -439,8 +454,9 @@ export class MindmapView extends ItemView {
       // 先把上一篇的画面清掉：读取是异步的，不清的话这段空隙里还是上一篇的导图
       this.draw()
     }
+    const generation = ++this.loadGeneration
     const text = await this.bridge.loadText(file)
-    if (this.file?.path !== file.path) return // 读取期间又换了一篇，见 syncActiveFile 里的同一道判断
+    if (generation !== this.loadGeneration || this.file?.path !== file.path) return // 读取期间又换了一篇，见 syncActiveFile 里的同一道判断
     this.refresh(text)
   }
 
@@ -511,8 +527,9 @@ export class MindmapView extends ItemView {
     this.toolbar = new Toolbar(host, {
       fit: () => this.fitToScreen(),
       zoom: (factor) => this.canvas.zoomBy(factor),
-      expandAll: () => this.setAllCollapsed(false),
+      expandAll: () => this.setAllCollapsed(![...(this.tree?.byId.values() ?? [])].some(n => n.viewHidden || n.children.length && n.collapsed)),
       collapseAll: () => this.setAllCollapsed(true),
+      foldMenu: event => this.openFoldMenu(event),
       toggleLock: () => this.toggleLock(),
       openStyle: () => this.openStyle(),
       afterAction: () => this.canvas.focus(),
@@ -616,6 +633,10 @@ export class MindmapView extends ItemView {
   }
 
   override async onClose(): Promise<void> {
+    this.loadGeneration++
+    for (const card of this.retainedBodies.keys()) await card.flush()
+    if (this.bodyCard) await this.bodyCard.flush()
+    this.closeBody()
     this.modeObserver?.disconnect()
     this.modeObserver = null
     this.modeContainers = []
@@ -720,6 +741,9 @@ export class MindmapView extends ItemView {
 
   /** 展开 / 折叠全部（M7 工具栏）。只有有子节点的节点需要改。 */
   private setAllCollapsed(collapsed: boolean): void {
+    this.headingLevel = 0
+    if (this.tree) clearHeadingFilter(this.tree)
+    this.rememberLevel(0)
     const tree = this.tree
     if (!tree) return
     const walk = (n: MindNode): void => {
@@ -763,6 +787,7 @@ export class MindmapView extends ItemView {
    * 所以统一走这一条。
    */
   private setCollapsed(node: MindNode, collapsed: boolean): void {
+    if (!collapsed) { this.headingLevel = 0; this.rememberLevel(0); if (this.tree) clearHeadingFilter(this.tree) }
     node.collapsed = collapsed
     this.draw()
     this.centerSubtree(node.id)
@@ -883,12 +908,15 @@ export class MindmapView extends ItemView {
    * 只改了一边，就会出现「跟着活动笔记切换是干净的、手动指名切换却残留上一篇」这种鬼故事。
    */
   private adoptFile(next: TFile | null): void {
+    this.loadGeneration++
+    this.closeBody()
     this.canvas.cancelGesture()
     this.drag.cancel()
     this.motion?.reset()
     if (this.search?.path !== next?.path) this.clearSearch()
     this.cancelSession()
     this.file = next
+    this.headingLevel = Number(this.app.loadLocalStorage?.('outline-mindmap:level:' + next?.path) ?? Math.max(0, this.host.settings.initialLevel))
     this.styleViewport = undefined
     this.previewingStyle = false
     if (!this.pinned) this.noteMode = 'source'
@@ -954,11 +982,12 @@ export class MindmapView extends ItemView {
     // 先把上一篇的画面清掉：读取是异步的，不清的话这段空隙里屏幕上还是上一篇的导图
     this.draw()
 
+    const generation = ++this.loadGeneration
     const text = await this.bridge.loadText(next)
     // 【读取期间可能又换了一篇】。A→B 快速切换时，若 A 的读取比 B 慢，
     // A 的后手回来会把 A 的文本刷进 B 的视图，画面就永久停在上一篇上（不会自愈）。
     // 身份对不上就直接丢弃——B 自己那一次同步会把正确的内容刷进来。
-    if (this.file !== next) return
+    if (generation !== this.loadGeneration || this.file !== next) return
     this.refresh(text)
   }
 
@@ -975,8 +1004,18 @@ export class MindmapView extends ItemView {
   }
 
   private refresh(text: string): void {
+    this.loadGeneration++
+    const geometry = (tree: MindTree | null): string => tree ? [...tree.byId.values()].map(n => JSON.stringify([n.id, n.text, n.depth, n.parent?.id, n.collapsed, n.viewHidden])).join('|') : ''
+    const previousGeometry = geometry(this.tree)
     this.tree = reconcile(this.tree, parse(text, this.parseOptions()))
+    if (this.headingLevel > 0) showHeadingLevel(this.tree, this.headingLevel)
     // 被别处删掉的节点不能继续留在选中集合里，否则删除/拖拽会拿着不存在的 id 去生成 plan
+    this.syncBody()
+    const activeCard = this.bodyCard, activeSession = this.bodySession
+    for (const [card, session] of this.retainedBodies) {
+      this.bodyCard = card; this.bodySession = session; this.syncBody()
+    }
+    this.bodyCard = activeCard; this.bodySession = activeSession
     const byId = this.tree.byId
     for (const id of [...this.selection]) if (!byId.has(id)) this.selection.delete(id)
     if (this.focusId !== null && !byId.has(this.focusId)) {
@@ -985,7 +1024,9 @@ export class MindmapView extends ItemView {
     }
     if (this.search && !this.search.pending && !searchTargets(this.tree, this.search.state)) this.clearSearch()
     if (this.search) this.applySearch()
-    else this.draw()
+    else if (this.boxes.size && previousGeometry === geometry(this.tree)) {
+      this.nodeRenderer.setBodyIndicators(this.host.settings.nodeBody ? bodyIndicators(this.tree) : new Set())
+    } else this.draw()
   }
 
   /** 编辑结束后补上编辑期间被挡下的外部变更。 */
@@ -1001,11 +1042,14 @@ export class MindmapView extends ItemView {
    * 折叠态与节点 id 由 reconcile 保住；正在编辑时不开进来（开关在设置页，点它时编辑框已收起）。
    */
   async reparse(): Promise<void> {
+    if (!this.host.settings.nodeBody) this.closeBody()
     const file = this.file
     if (!file) return
+    const generation = ++this.loadGeneration
     const text = await this.bridge.readText(file)
-    if (this.file?.path !== file.path) return // 读取期间换了笔记，那一路自己会刷
+    if (generation !== this.loadGeneration || this.file?.path !== file.path) return // 读取期间换了笔记，那一路自己会刷
     this.refresh(text)
+    this.draw()
   }
 
   // ── 渲染 ────────────────────────────────────────────────────
@@ -1025,8 +1069,11 @@ export class MindmapView extends ItemView {
       return
     }
 
+    this.toolbar.setFolded([...tree.byId.values()].some(n => n.collapsed || n.viewHidden))
+    this.contentEl.toggleClass('om-body-enabled', this.host.settings.nodeBody)
     const boxes = layout(tree, this.layoutOptions())
     const nodes = visibleNodes(tree)
+    const bodyIds = this.host.settings.nodeBody ? bodyIndicators(tree) : new Set<string>()
     const animated = motionAllowed && nodes.length <= MOTION_NODE_LIMIT
     this.canvas.setAnimated(animated)
     this.boxes = boxes
@@ -1036,6 +1083,7 @@ export class MindmapView extends ItemView {
     // the short transition before hit-testing, so edits never use intermediate geometry.
     this.motion.update(boxes, animated && !this.needsFit && !this.session && !this.drag.active, frame => {
       this.nodeRenderer.render(nodes, frame, this.selection, rootSide(this.direction))
+      this.nodeRenderer.setBodyIndicators(bodyIds)
       const bounds = boundsOf(frame)
       this.connectors.render(nodes, frame, this.style.branch, bounds.x + bounds.w, bounds.y + bounds.h)
     })
@@ -1054,7 +1102,7 @@ export class MindmapView extends ItemView {
       // 根之间的距离跟着纵向间距走，但不小于默认值：纵向间距调大之后，
       // 两棵根挨得比同一棵树里的兄弟还近，看上去就像它们是一家的
       rootGap: Math.max(DEFAULT_LAYOUT.rootGap, this.style.vGap * 2),
-      measure: (node) => measureNode(node.text, font),
+      measure: (node) => { const box = measureNode(node.text, font); return this.host.settings.nodeBody ? { ...box, w: box.w + 24 } : box },
     }
   }
 
@@ -1135,6 +1183,7 @@ export class MindmapView extends ItemView {
     const node = this.tree.byId.get(id)
     if (!node) return
 
+    if (target.closest('.om-body-button')) { void this.openBody(node); return }
     if (target.closest('.om-toggle')) {
       if (node.children.length === 0) return
       this.setCollapsed(node, !node.collapsed)
@@ -1145,7 +1194,7 @@ export class MindmapView extends ItemView {
     // 正在攒一批要删的节点，编辑器却在一路乱滚，很吵。
     if (e.ctrlKey || e.metaKey) {
       this.toggleSelection(id)
-      this.draw()
+      this.nodeRenderer.setSelection(this.selection)
       this.canvas.focus()
       return
     }
@@ -1159,6 +1208,7 @@ export class MindmapView extends ItemView {
   }
 
   private readonly onDoubleClick = (e: MouseEvent): void => {
+    if ((e.target as HTMLElement).closest('.om-toggle, .om-body-button')) return
     if (this.editor.active) return
     const id = (e.target as HTMLElement).closest('.om-node')?.getAttribute('data-node-id')
     if (id) {
@@ -1192,7 +1242,7 @@ export class MindmapView extends ItemView {
    */
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     this.motion?.finish()
-    if (this.editor.active || e.isComposing) return
+    if (this.editor.active || e.isComposing || (e.target as HTMLElement | null)?.closest('input, textarea, [contenteditable=true], .cm-editor')) return
     // 拖拽中按 Esc = 放弃这次拖拽，文件一个字都不写
     if (e.key === 'Escape' && this.drag.active) {
       e.preventDefault()
@@ -1209,6 +1259,9 @@ export class MindmapView extends ItemView {
       return
     }
     if (this.historyBusy) { e.preventDefault(); return }
+    if (mod && !e.altKey && ['c', 'x', 'v'].includes(e.key.toLowerCase())) {
+      e.preventDefault(); e.stopPropagation(); void this.clipboardAction(e.key.toLowerCase(), e.shiftKey); return
+    }
     if (mod || e.altKey) return
 
     switch (e.key) {
@@ -1289,7 +1342,10 @@ export class MindmapView extends ItemView {
 
   private select(id: string): void {
     this.setSelection(id)
-    this.draw()
+    this.nodeRenderer.setSelection(this.selection)
+    if (this.bodyCard?.pinned && !this.bodyCard.retained && this.bodySession?.range.start !== (this.tree?.byId.get(id)?.titleLine ?? -2) + 1) {
+      const node = this.tree?.byId.get(id); if (node) void this.openBody(node, true, false)
+    }
     this.reveal(id)
   }
 
@@ -1302,6 +1358,7 @@ export class MindmapView extends ItemView {
 
   /** Ctrl+左键：加选 / 减选。减掉主选中时，主选中让给集合里剩下的最后一个。 */
   private toggleSelection(id: string): void {
+    this.bodyOpenGeneration++
     if (this.selection.delete(id)) {
       if (this.focusId === id) {
         let last: string | null = null
@@ -1349,18 +1406,238 @@ export class MindmapView extends ItemView {
   // ── 编辑会话 ────────────────────────────────────────────────
 
   private readonly onNodeMenu = (event: MouseEvent): void => {
-    if (!this.canEdit() || this.session || !(event.target instanceof Element)) return
+    if (this.session || !(event.target instanceof Element)) return
     const id = event.target.closest<HTMLElement>('.om-node')?.dataset.nodeId
     if (!id || !this.tree?.byId.has(id)) return
     const { orderedListNodes, listNodes } = this.host.settings
-    if (!orderedListNodes && !listNodes) return
+
     event.preventDefault()
     const menu = new Menu()
-    if (orderedListNodes) menu.addItem(item => item.setTitle(t('menu.addOrdered')).setIcon('list-ordered')
-      .onClick(() => this.beginDraft({ type: 'child', parentId: id, marker: '1.' })))
-    if (listNodes) menu.addItem(item => item.setTitle(t('menu.addUnordered')).setIcon('list')
-      .onClick(() => this.beginDraft({ type: 'child', parentId: id, marker: '-' })))
+    if (!this.selection.has(id)) this.setSelection(id)
+    else this.focusId = id
+    this.bodyOpenGeneration++
+    this.nodeRenderer.setSelection(this.selection)
+    const target = this.tree.byId.get(id)!
+    const act = (action: string, sibling = false) => { this.focusId = id; void this.clipboardAction(action, sibling) }
+    if (this.host.settings.nodeBody) menu.addItem(item => item.setTitle(label('正文', 'Body')).setIcon('file-text').onClick(() => { void this.openBody(target) }))
+    menu.addSeparator()
+    menu.addItem(item => item.setTitle(label('复制', 'Copy')).setIcon('copy').onClick(() => act('c')))
+    menu.addItem(item => item.setTitle(label('剪切', 'Cut')).setIcon('scissors').setDisabled(!this.canEdit()).onClick(() => act('x')))
+    menu.addItem(item => {
+      item.setTitle(label('粘贴', 'Paste')).setIcon('clipboard-paste').setDisabled(!this.canEdit())
+      const nested = item as typeof item & { setSubmenu?: () => Menu }
+      const sub = nested.setSubmenu?.() ?? new Menu()
+      if (!nested.setSubmenu) item.onClick(() => sub.showAtMouseEvent(event))
+      sub.addItem(entry => entry.setTitle(label('作为子节点', 'As child')).onClick(() => act('v')))
+      sub.addItem(entry => entry.setTitle(label('作为同级节点', 'As sibling')).onClick(() => act('v', true)))
+    })
+    menu.addItem(item => {
+      item.setTitle(label('更多', 'More')).setIcon('ellipsis')
+      const nested = item as typeof item & { setSubmenu?: () => Menu }
+      const sub = nested.setSubmenu?.() ?? new Menu()
+      if (!nested.setSubmenu) item.onClick(() => sub.showAtMouseEvent(event))
+      sub.addItem(entry => entry.setTitle(label('编辑标题', 'Edit title')).setDisabled(!this.canEdit()).onClick(() => this.beginRename(id)))
+      sub.addItem(entry => entry.setTitle(label('仅复制标题', 'Copy title')).onClick(() => { void this.contentEl.ownerDocument.defaultView!.navigator.clipboard.writeText(target.text).catch(error => this.report(error)) }))
+      if (orderedListNodes) sub.addItem(entry => entry.setTitle(t('menu.addOrdered')).setDisabled(!this.canEdit()).onClick(() => this.beginDraft({ type: 'child', parentId: id, marker: '1.' })))
+      if (listNodes) sub.addItem(entry => entry.setTitle(t('menu.addUnordered')).setDisabled(!this.canEdit()).onClick(() => this.beginDraft({ type: 'child', parentId: id, marker: '-' })))
+    })
+    menu.addSeparator()
+    menu.addItem(item => item.setTitle(label('删除', 'Delete')).setIcon('trash-2').setDisabled(!this.canEdit()).onClick(() => this.removeSelected()))
     menu.showAtMouseEvent(event)
+  }
+
+  private async clipboardAction(action: string, sibling = false): Promise<void> {
+    const tree = this.tree, file = this.file
+    if (!tree || !file || this.session) return
+    try {
+      if (action === 'c' || action === 'x') {
+        if (action === 'x' && !this.canEdit()) return
+        const nodes = selectedBranches(tree, this.selection)
+        if (!nodes.length) return
+        const text = copyBranches(tree, this.selection)
+        await this.contentEl.ownerDocument.defaultView!.navigator.clipboard.writeText(text)
+        MindmapView.clipboardSource = { text, path: file.path }
+        if (action === 'x') {
+          if (this.file !== file || this.tree !== tree) throw new Error('笔记已更新，已复制但未剪切')
+          this.applyEdit(removeSubtree(tree, nodes.map(n => n.id)))
+        }
+        return
+      }
+      if (!this.canEdit()) return
+      const parent = this.selectedNode()
+      const text = await this.contentEl.ownerDocument.defaultView!.navigator.clipboard.readText()
+      if (!text.trim()) return
+      if (this.file !== file || this.tree !== tree) throw new Error('笔记已更新，请重新粘贴')
+      if (!this.canEdit()) return
+      const source = MindmapView.clipboardSource
+      const content = source?.text === text && source.path !== file.path ? this.rebaseClipboardLinks(text, source.path, file.path) : text
+      const plan = pastePlan(tree, parent, content, this.parseOptions(), sibling)
+      if (parent && !sibling) parent.collapsed = false
+      this.applyEdit(plan)
+    } catch (error) { this.report(error) }
+  }
+
+  private rebaseClipboardLinks(text: string, source: string, target: string): string {
+    // Fenced and inline code stays literal; links outside code use Obsidian's resolver.
+    let fence: string | null = null
+    return text.split('\n').map(line => {
+      const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
+      if (marker) { if (!fence) fence = marker; else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null; return line }
+      if (fence) return line
+      return line.replace(/(`+)([^`]*?)\1|!?\[\[([^\]]+)\]\]|!?\[([^\]]*)\]\(([^\s)]+)\)/g, (all, ticks: string | undefined, _code: string, wiki: string | undefined, alias: string, url: string) => {
+        if (ticks) return all
+        const raw = wiki?.split('|')[0] ?? url
+        if (!raw || /^(?:[a-z]+:|#|\/)/i.test(raw)) return all
+        const hash = raw.indexOf('#'), link = hash < 0 ? raw : raw.slice(0, hash), subpath = hash < 0 ? '' : raw.slice(hash)
+        let decoded = link
+        try { decoded = decodeURIComponent(link) } catch { return all }
+        const file = this.app.metadataCache.getFirstLinkpathDest(decoded, source)
+        if (!file) return all
+        const caption = wiki?.includes('|') ? wiki.slice(wiki.indexOf('|') + 1) : wiki ? undefined : alias
+        return (all.startsWith('!') ? '!' : '') + this.app.fileManager.generateMarkdownLink(file, target, subpath, caption)
+      })
+    }).join('\n')
+  }
+
+  async runAction(action: string): Promise<void> {
+    const active = this.contentEl.ownerDocument.activeElement
+    if (active?.closest('input, textarea, [contenteditable=true], .cm-editor')) return
+    if (action === 'copy') return this.clipboardAction('c')
+    if (action === 'cut') return this.clipboardAction('x')
+    if (action === 'paste') return this.clipboardAction('v')
+    if (action === 'paste-sibling') return this.clipboardAction('v', true)
+    const node = this.selectedNode()
+    if (action === 'copy-title' && node) {
+      try { await this.contentEl.ownerDocument.defaultView!.navigator.clipboard.writeText(node.text) } catch (error) { this.report(error) }
+    }
+    if (action === 'body' && node) await this.openBody(node)
+    if (action === 'rename' && node) this.beginRename(node.id)
+    if (action === 'expand') this.setAllCollapsed(false)
+    if (action === 'collapse') this.setAllCollapsed(true)
+    if (/^level-[1-6]$/.test(action)) this.chooseLevel(Number(action.slice(-1)))
+    if (action === 'undo' || action === 'redo') await this.stepHistory(action)
+  }
+
+  private rememberLevel(level: number): void {
+    if (this.file) this.app.saveLocalStorage?.('outline-mindmap:level:' + this.file.path, level)
+  }
+  private chooseLevel(level: number): void {
+    if (!this.tree) return
+    this.headingLevel = level; showHeadingLevel(this.tree, level); this.rememberLevel(level)
+    this.setSelection(null); this.draw()
+  }
+  private openFoldMenu(event: MouseEvent): void {
+    const menu = new Menu()
+    menu.addItem(item => item.setTitle(t('tool.expand')).onClick(() => this.setAllCollapsed(false)))
+    menu.addItem(item => item.setTitle(t('tool.collapse')).onClick(() => this.setAllCollapsed(true)))
+    menu.addSeparator()
+    for (let level = 1; level <= 6; level++) menu.addItem(item => item
+      .setTitle(label(`标题显示到 H${level}`, `Headings through H${level}`)).setChecked(this.headingLevel === level)
+      .onClick(() => this.chooseLevel(level)))
+    menu.showAtMouseEvent(event)
+  }
+
+  private closeBody(): void {
+    for (const card of this.retainedBodies.keys()) this.removeChild(card)
+    this.retainedBodies.clear()
+    this.bodyOpenGeneration++
+    if (this.bodyCard) this.removeChild(this.bodyCard)
+    this.bodyCard = null; this.bodySession = null
+  }
+
+  private syncBody(): void {
+    const session = this.bodySession, card = this.bodyCard, tree = this.tree
+    if (!session || !card || !tree || session.file !== this.file || session.writing) return
+    const range = rebaseBody(session.base, tree.lines, session.range)
+    if (range) {
+      session.range = range; session.base = [...tree.lines]
+      card.update(readBody(tree.lines, range)); return
+    }
+    // Refresh an unchanged title at the same line only in read/clean mode.
+    const node = [...tree.byId.values()].find(n => n.titleLine === session.range.start - 1 && n.text === session.title)
+    if (!card.dirty && node && session.base.slice(0, node.titleLine + 1).every((line, i) => line === tree.lines[i])) {
+      session.range = bodyRange(tree, node); session.base = [...tree.lines]
+      card.update(readBody(tree.lines, session.range))
+    } else card.markConflict()
+  }
+
+  private async openBody(node: MindNode, restore = true, focus = true): Promise<void> {
+    if (!this.host.settings.nodeBody || !this.file || !this.tree) return
+    for (const [card, session] of this.retainedBodies) {
+      if (session.file === this.file && session.range.start === node.titleLine + 1) {
+        card.el.parentElement?.appendChild(card.el)
+        if (focus) card.el.querySelector('textarea')?.focus({ preventScroll: true })
+        return
+      }
+    }
+    const request = ++this.bodyOpenGeneration
+    const file = this.file, nodeId = node.id
+    const pinned = this.bodyCard?.pinned ?? false
+    if (this.bodyCard && !await this.bodyCard.flush()) return
+    if (this.file !== file || !this.tree || request !== this.bodyOpenGeneration) return
+    const currentNode = this.tree.byId.get(nodeId)
+    if (!focus && this.focusId !== nodeId) return
+    if (!currentNode) return
+    node = currentNode
+    if (this.bodyCard && this.bodySession && this.bodyCard.retained) {
+      this.bodyCard.setPinned(false)
+      this.retainedBodies.set(this.bodyCard, this.bodySession)
+    } else if (this.bodyCard) this.removeChild(this.bodyCard)
+    this.bodyCard = null; this.bodySession = null
+    const range = bodyRange(this.tree, node)
+    const session = { file, base: [...this.tree.lines], range, title: node.text, writing: false }
+    this.bodySession = session
+    const key = 'outline-mindmap:body-draft:' + file.path + ':' + node.titleLine
+    const source = readBody(session.base, range)
+    const recovered: unknown = this.app.loadLocalStorage(key)
+    const draft = restore && recovered && typeof recovered === 'object' &&
+      'text' in recovered && typeof recovered.text === 'string' && 'title' in recovered && recovered.title === node.text ? recovered.text : undefined
+    const card = new BodyCard(this.contentEl, this.app, file.path, node.text, source, this.canEdit(), {
+      draft: value => { this.app.saveLocalStorage(key, value === null ? null : { text: value, title: session.title, source: readBody(session.base, session.range) }) },
+      close: () => {
+        this.retainedBodies.delete(card); this.removeChild(card)
+        if (this.bodyCard === card) { this.bodyCard = null; this.bodySession = null }
+        this.canvas.focus()
+      },
+      reload: () => {
+        const current = this.tree && [...this.tree.byId.values()].find(n => n.titleLine === session.range.start - 1 && n.text === session.title)
+        this.retainedBodies.delete(card); this.removeChild(card)
+        if (this.bodyCard === card) { this.bodyCard = null; this.bodySession = null }
+        if (current) void this.openBody(current, false)
+        else new Notice(label('节点已变化，草稿保存在本机，请重新选择原节点。', 'The node changed. The draft remains on this device. Select the source node again.'))
+      },
+      write: async value => {
+        if (this.file !== file || !this.canEdit()) throw new Error(label('笔记已切换或锁定，草稿已保留', 'Note changed or locked; draft preserved'))
+        const current = await this.bridge.readText(file)
+        const parsed = parse(current, this.parseOptions())
+        const rebased = rebaseBody(session.base, parsed.lines, session.range)
+        if (!rebased) throw new Error(label('原文已更新，请保留草稿后重新载入', 'Source changed. Keep the draft and reload.'))
+        session.base = parsed.lines; session.range = rebased
+        const plan = bodyPlan(rebased, value)
+        session.writing = true
+        try {
+          await this.bridge.applyPlan(file, session.base, plan, parsed.eol)
+          session.base = applyPlan(session.base, plan)
+          session.range = { ...rebased, end: rebased.start + plan[0]!.lines.length }
+          if (this.file === file) this.refresh(joinLines(session.base, parsed.eol))
+        } finally { session.writing = false }
+      },
+    }, draft)
+    this.bodyCard = card; this.addChild(card)
+    card.setPinned(pinned)
+    card.el.addEventListener('pointerdown', () => {
+      for (const element of Array.from(this.contentEl.querySelectorAll<HTMLElement>('.om-body-card'))) element.style.zIndex = '20'
+      card.el.style.zIndex = '21'
+    })
+    if (focus) card.el.querySelector('textarea')?.focus({ preventScroll: true })
+    if (focus) { this.setSelection(node.id); this.nodeRenderer.setSelection(this.selection) }
+    if (draft !== undefined && recovered && typeof recovered === 'object' && 'source' in recovered && recovered.source !== source) card.markConflict()
+    const anchor = this.contentEl.querySelector<HTMLElement>(`[data-node-id="${node.id}"]`)
+    if (anchor) {
+      const rect = anchor.getBoundingClientRect(), host = this.contentEl.getBoundingClientRect()
+      card.el.style.left = `${Math.max(12, Math.min(rect.right - host.left + 12, host.width - 432))}px`
+      card.el.style.top = `${Math.max(56, Math.min(rect.top - host.top, host.height - 300))}px`
+    }
   }
 
   private startSibling(): void {

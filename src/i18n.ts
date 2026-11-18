@@ -357,7 +357,7 @@ const en: Record<MsgKey, string> = {
   'settings.strictLineBreakDesc': 'When adding or moving nodes, pad to exactly 3 blank lines between adjacent headings. When off, only the necessary line is written.',
   'settings.listNodes': 'Show list items as nodes',
   'settings.listNodesDesc':
-    'When on, list items under headings become deeper mindmap nodes (level 7 and beyond). ' +
+    'When on, list items under headings become child mindmap nodes. ' +
     'When off, lists count as body text and the map is built from headings only.',
   'settings.rememberOpenAs': 'Remember how each note opens',
   'settings.rememberOpenAsDesc':

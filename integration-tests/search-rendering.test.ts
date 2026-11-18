@@ -31,6 +31,7 @@ describe('search viewport and rendered marks', () => {
     view.nodeRenderer = new NodeRenderer(layer as any)
     view.connectors = { render: vi.fn() }
     view.drag = { active: false }
+    view.toolbar = { setFolded: vi.fn() }
     let gap = 40
     view.layoutOptions = () => ({ ...DEFAULT_LAYOUT, hGap: gap, measure: () => ({ w: 100, h: 40 }) })
     view.draw()

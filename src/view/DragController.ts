@@ -229,7 +229,7 @@ export class DragController {
     if (e.button !== 0 || this.pointerId !== null || !this.hooks.enabled()) return
     const el = (e.target as HTMLElement).closest<HTMLElement>('.om-node')
     // 折叠按钮是它自己的点击区，不能一按就被当成要拖动
-    if (!el || (e.target as HTMLElement).closest('.om-toggle')) return
+    if (!el || (e.target as HTMLElement).closest('.om-toggle, .om-body-button')) return
     const id = el.dataset['nodeId']
     if (!id) return
 
@@ -258,6 +258,8 @@ export class DragController {
 
   private readonly onPointerUp = (e: PointerEvent): void => {
     if (this.pointerId !== e.pointerId) return
+    this.pending = { x: e.clientX, y: e.clientY }
+    this.update()
     const dragId = this.dragId
     const result = this.result
     const dragging = dragId !== null

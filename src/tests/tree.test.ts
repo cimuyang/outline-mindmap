@@ -302,11 +302,11 @@ describe('moveSubtree', () => {
     expect(() => moveSubtree(tree, idOf(tree, '一'), idOf(tree, '一'), 0, LOOSE)).toThrow(/自己/)
   })
 
-  it('正文随子树一起移动，且不做任何缩进调整', () => {
+  it('正文随子树一起移动，保留内部相对缩进', () => {
     const tree = parse('###### 六\n#### 四\n正文一\n\t保持原缩进\n##### 五\n正文二\n')
     const plan = moveSubtree(tree, idOf(tree, '四'), idOf(tree, '六'), 0, LOOSE)
     expect(applied(tree, plan)).toBe(
-      '###### 六\n- 四\n正文一\n\t保持原缩进\n\t- 五\n正文二\n',
+      '###### 六\n- 四\n  正文一\n      保持原缩进\n\t- 五\n      正文二\n',
     )
   })
 

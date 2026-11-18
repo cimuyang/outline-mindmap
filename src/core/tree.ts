@@ -136,7 +136,7 @@ export function maxDepthDrop(node: MindNode): number {
   let max = 0
   const walk = (n: MindNode): void => {
     for (const c of n.children) {
-      max = Math.max(max, c.depth - n.depth)
+      max = Math.max(max, c.depth - node.depth)
       walk(c)
     }
   }
@@ -435,7 +435,7 @@ export function navigate(tree: MindTree, id: string, dir: NavDirection): NavActi
   switch (dir) {
     case 'up': {
       if (!parent) return null
-      const prev = parent.children[indexIn(parent, node) - 1]
+      const prev = parent.children.slice(0, indexIn(parent, node)).filter(n => !n.viewHidden).at(-1)
       if (prev) return { type: 'select', id: prev.id }
       return parent.depth > 0 ? { type: 'select', id: parent.id } : null
     }
@@ -443,7 +443,7 @@ export function navigate(tree: MindTree, id: string, dir: NavDirection): NavActi
       let cur: MindNode = node
       while (cur.parent) {
         const p: MindNode = cur.parent
-        const next = p.children[indexIn(p, cur) + 1]
+        const next = p.children.slice(indexIn(p, cur) + 1).find(n => !n.viewHidden)
         if (next) return { type: 'select', id: next.id }
         if (p.depth === 0) break // 已经到虚拟 root，没有更外层了
         cur = p
@@ -453,7 +453,7 @@ export function navigate(tree: MindTree, id: string, dir: NavDirection): NavActi
     case 'right': {
       if (node.children.length === 0) return null
       if (node.collapsed) return { type: 'expand', id: node.id }
-      const first = node.children[0]
+      const first = node.children.find(n => !n.viewHidden)
       return first ? { type: 'select', id: first.id } : null
     }
     case 'left': {

@@ -15,7 +15,6 @@ import {
   type App,
   type Component,
   type Editor,
-  type WorkspaceLeaf,
 } from 'obsidian'
 import type { EditorView } from '@codemirror/view'
 import { applyPlan as applyPlanToLines } from '../core/editplan'
@@ -172,7 +171,15 @@ export class DocumentBridge {
       const current = splitLines(editor.getValue())
       assertUnchanged(base, current, plan)
       // 一个用户操作 = 一个事务，保证 Ctrl+Z 一次撤销（陷阱 15）
-      editor.transaction({ changes: planToChanges(current, plan, eol) })
+      const changes = planToChanges(current, plan, eol)
+      const cm = cmOf(editor)
+      if (reveal === undefined && cm && typeof cm.scrollSnapshot === 'function') {
+        const position = (pos: { line: number; ch: number }): number => cm.state.doc.line(pos.line + 1).from + pos.ch
+        const mapped = cm.state.changes(changes.map(change => ({
+          from: position(change.from), to: position(change.to), insert: change.text,
+        })))
+        cm.dispatch({ changes: mapped, effects: cm.scrollSnapshot().map(mapped) ?? [], scrollIntoView: false })
+      } else editor.transaction({ changes })
       this.revealAfterWrite(file, editor, reveal)
       return
     }
@@ -428,11 +435,12 @@ export class DocumentBridge {
    * `scrollIntoView` 那一下本来就是空放。
    */
   private visibleViewFor(file: TFile): MarkdownView | null {
-    const leaf = this.leafFor(file)
-    if (!leaf || leaf.isDeferred) return null
-    const view = leaf.view
-    if (!(view instanceof MarkdownView)) return null
-    return view.containerEl.isShown() ? view : null
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      if (leaf.isDeferred || leaf.getViewState().state?.['file'] !== file.path) continue
+      const view = leaf.view
+      if (view instanceof MarkdownView && view.containerEl.isShown()) return view
+    }
+    return null
   }
 
   /**
@@ -478,12 +486,7 @@ export class DocumentBridge {
    * 笔记会被判成没开——跳转就为它另开一个标签页，看上去就是「点了没反应」。
    * 按视图状态里的【路径】认，延迟与否都认得出来。
    */
-  private leafFor(file: TFile): WorkspaceLeaf | null {
-    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
-      if (leaf.getViewState().state?.['file'] === file.path) return leaf
-    }
-    return null
-  }
+
 
   // ── 读取与防抖（第 4.2 节）──────────────────────────────────
 
@@ -534,6 +537,9 @@ function cmOf(editor: Editor): EditorView | null {
 
 /** 核对被 plan 触及的每一行是否仍与生成 plan 时一致。 */
 function assertUnchanged(base: string[], current: string[], plan: EditPlan): void {
+  if (base.length !== current.length || base.some((line, i) => line !== current[i])) {
+    throw new Error('笔记已在别处修改，请重试')
+  }
   for (const e of plan) {
     if (e.toLine > current.length) {
       throw new Error('文件已在别处被修改（行数变少），本次操作已取消')

@@ -12,7 +12,7 @@ function setup(content = '# Parent\n## word\nbody word\n# Other') {
   view.file = { path: 'note.md' }
   view.tree = parse(content)
   view.searchBar = new FakeElement()
-  view.nodeRenderer = { setSearch: vi.fn() }
+  view.nodeRenderer = { setSearch: vi.fn(), setBodyIndicators: vi.fn() }
   view.editor = { active: false, stop: vi.fn() }
   view.drag = { active: false, cancel: vi.fn() }
   view.canvas = { centerOn: vi.fn(() => true), focus: vi.fn(), fit: vi.fn(() => true),

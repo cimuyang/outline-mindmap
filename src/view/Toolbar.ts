@@ -7,6 +7,7 @@
  * - 【事件委托】。整条工具栏只挂 2 个监听器，按钮做什么写在 data-action 上。
  */
 
+import { label } from './strings'
 import { setIcon } from 'obsidian'
 import { t, type MsgKey } from '../i18n'
 
@@ -16,6 +17,7 @@ export interface ToolbarHooks {
   zoom(factor: number): void
   expandAll(): void
   collapseAll(): void
+  foldMenu?(event: MouseEvent): void
   toggleLock(): void
   /** 打开样式窗口（M8）。 */
   openStyle(): void
@@ -37,7 +39,6 @@ const BUTTONS: readonly ButtonSpec[] = [
   { action: 'zoom-out', icon: 'zoom-out', label: 'tool.zoomOut' },
   { action: 'zoom-in', icon: 'zoom-in', label: 'tool.zoomIn' },
   { action: 'expand', icon: 'chevrons-up-down', label: 'tool.expand' },
-  { action: 'collapse', icon: 'chevrons-down-up', label: 'tool.collapse' },
   { action: 'lock', icon: 'lock-open', label: 'tool.lock' },
   { action: 'style', icon: 'palette', label: 'tool.style' },
 ]
@@ -51,7 +52,13 @@ export class Toolbar {
     private readonly hooks: ToolbarHooks,
   ) {
     this.el = host.createDiv({ cls: 'om-toolbar' })
-    for (const spec of BUTTONS) this.addButton(spec)
+    for (const spec of BUTTONS) {
+      this.addButton(spec)
+      if (spec.action === 'expand' && hooks.foldMenu) {
+        const more = this.el.createEl('button', { cls: 'om-tool om-fold-menu' }); more.type = 'button'
+        more.dataset.action = 'fold-menu'; more.setAttribute('aria-label', label('展开范围', 'Heading range')); more.setAttribute('aria-haspopup', 'menu'); setIcon(more, 'chevron-down')
+      }
+    }
 
     this.el.addEventListener('pointerdown', this.onPointerDown)
     this.el.addEventListener('click', this.onClick)
@@ -74,6 +81,13 @@ export class Toolbar {
     return btn
   }
 
+  setFolded(folded: boolean): void {
+    const button = this.el.querySelector<HTMLElement>('[data-action="expand"]')
+    if (!button) return
+    setIcon(button, folded ? 'chevrons-up-down' : 'chevrons-down-up')
+    button.setAttribute('aria-label', t(folded ? 'tool.expand' : 'tool.collapse'))
+  }
+
   setLocked(locked: boolean, forced: boolean, available: boolean): void {
     setIcon(this.lock, locked ? 'lock' : 'lock-open')
     this.lock.disabled = forced || !available
@@ -92,6 +106,7 @@ export class Toolbar {
     if (!action) return
 
     switch (action) {
+      case 'fold-menu': this.hooks.foldMenu?.(e); return
       case 'fit':
         this.hooks.fit()
         break

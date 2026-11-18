@@ -5,6 +5,7 @@
  */
 
 import { PluginSettingTab, Setting, type App, type Plugin, type TFile, type WorkspaceLeaf } from 'obsidian'
+import { label } from '../view/strings'
 import { t, type MsgKey } from '../i18n'
 import type { FileHistory } from '../doc/FileHistory'
 import type { SearchState } from '../view/search'
@@ -14,6 +15,8 @@ import { defaultStyleData, normalizeStyleData, type StyleData, type StyleStore }
 
 export interface MindmapSettings {
   /** 单击节点是否跳转到笔记对应位置。关掉之后单击只选中。 */
+  initialLevel: number
+  nodeBody: boolean
   clickToJump: boolean
   /** 固定显示一篇笔记：开启后导图不再跟着活动笔记切换（M7。键名保持 lockFile，不迁移旧配置）。 */
   lockFile: boolean
@@ -36,6 +39,8 @@ export interface MindmapSettings {
 }
 
 export const DEFAULT_SETTINGS: MindmapSettings = {
+  initialLevel: 0,
+  nodeBody: false,
   clickToJump: true,
   lockFile: false,
   mapMode: 'fixed',
@@ -56,6 +61,8 @@ export function normalizeSettings(raw: unknown): MindmapSettings {
   const bool = (key: keyof MindmapSettings, fallback: boolean): boolean =>
     typeof o[key] === 'boolean' ? o[key] : fallback
   return {
+    initialLevel: Number.isInteger(o.initialLevel) && Number(o.initialLevel) >= -1 && Number(o.initialLevel) <= 6 ? Number(o.initialLevel) : 0,
+    nodeBody: bool('nodeBody', false),
     clickToJump: bool('clickToJump', DEFAULT_SETTINGS.clickToJump),
     mapMode: o.mapMode === 'follow' || o.mapMode === 'fixed' || o.mapMode === 'independent'
       ? o.mapMode : o.independentMaps === true ? 'independent' : 'fixed',
@@ -103,6 +110,8 @@ export class MindmapSettingTab extends PluginSettingTab {
   override display(): void {
     const { containerEl } = this
     containerEl.empty()
+    new Setting(containerEl).setName(label('正文与卡片', 'Body cards')).setHeading()
+    new Setting(containerEl).setName(label('启用节点正文', 'Node body')).setDesc(label('点击节点旁的正文图标直接编辑。支持自动保存、置顶保留和侧栏／底栏停靠。', 'Read next to a node or pin the body panel to keep writing.')).addToggle(toggle => toggle.setValue(this.host.settings.nodeBody).onChange(async value => { this.host.settings.nodeBody = value; await this.host.saveSettings(); this.host.reloadMindmaps() }))
 
     new Setting(containerEl).setName(t('settings.openMode')).setHeading()
     new Setting(containerEl).setName(t('settings.mainArea')).setDesc(t('settings.mainAreaDesc')).addDropdown(dropdown => dropdown

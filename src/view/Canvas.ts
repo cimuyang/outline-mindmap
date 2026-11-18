@@ -59,6 +59,7 @@ export class Canvas {
   private animated = false
   /** 上一次写进 style 的 transition，避免每帧都往 DOM 里塞同一个字符串。 */
   private transition = ''
+  private settleTimer: ReturnType<typeof setTimeout> | undefined
 
   /**
    * @param onResize 视口尺寸变化后的回调。视图刚打开时容器尺寸还是 0，
@@ -100,6 +101,7 @@ export class Canvas {
   }
 
   destroy(): void {
+    clearTimeout(this.settleTimer)
     this.observer.disconnect()
     this.cancelGesture()
     this.viewport.removeEventListener('pointerdown', this.onPointerDown, true)
@@ -428,6 +430,14 @@ export class Canvas {
     this.content.setCssStyles({
       transform: `translate(${this.tx}px, ${this.ty}px) scale(${this.scale})`,
     })
+    clearTimeout(this.settleTimer)
+    this.settleTimer = setTimeout(() => {
+      const ratio = this.content.ownerDocument.defaultView?.devicePixelRatio || 1
+      this.tx = Math.round(this.tx * ratio) / ratio
+      this.ty = Math.round(this.ty * ratio) / ratio
+      this.transition = ''
+      this.content.setCssStyles({ transition: '', transform: `translate(${this.tx}px, ${this.ty}px) scale(${this.scale})` })
+    }, MOVE_MS + 40)
   }
 }
 

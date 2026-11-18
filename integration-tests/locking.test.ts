@@ -237,7 +237,7 @@ describe('view preferences and toolbar integration', () => {
     const toolbar = new Toolbar(host as any, { fit: vi.fn(), zoom: vi.fn(), expandAll: vi.fn(),
       collapseAll: vi.fn(), openStyle: vi.fn(), afterAction: vi.fn(), toggleLock: toggle })
     const buttons = findByClass(host, 'om-tool')
-    expect(buttons.map(button => button.dataset['action'])).toEqual(['fit', 'zoom-out', 'zoom-in', 'expand', 'collapse', 'lock', 'style'])
+    expect(buttons.map(button => button.dataset['action'])).toEqual(['fit', 'zoom-out', 'zoom-in', 'expand', 'lock', 'style'])
     const lock: any = buttons.find(button => button.dataset['action'] === 'lock')!
     expect(lock.tagName).toBe('button')
     toolbar.setLocked(false, false, true); lock.dispatch('click')

@@ -1,3 +1,4 @@
+import { label } from './view/strings'
 import { MarkdownView, Notice, Plugin, TFile, type ViewState, WorkspaceLeaf } from 'obsidian'
 import { highlightExtension } from './doc/highlight'
 import { annotatePreviewSection } from './doc/preview'
@@ -141,6 +142,20 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
         void this.activateView('right')
       },
     })
+
+    for (const [id, zh, en] of [
+      ['copy', '复制分支', 'Copy branch'], ['cut', '剪切分支', 'Cut branch'],
+      ['paste', '粘贴为子节点', 'Paste as child'], ['paste-sibling', '粘贴为同级', 'Paste as sibling'],
+      ['copy-title', '仅复制标题', 'Copy title'], ['body', '查看或编辑正文', 'Show or edit body'],
+      ['rename', '编辑节点标题', 'Edit node title'], ['expand', '全部展开', 'Expand all'],
+      ['collapse', '全部收起', 'Collapse all'], ['undo', '撤销', 'Undo'], ['redo', '重做', 'Redo'],
+      ...[1, 2, 3, 4, 5, 6].map(level => [`level-${level}`, `标题显示到 H${level}`, `Headings through H${level}`]),
+    ]) this.addCommand({ id: id!, name: label(zh!, en!), checkCallback: checking => {
+      const view = this.app.workspace.getActiveViewOfType(MindmapView)
+      if (!view) return false
+      if (!checking) void view.runAction(id!)
+      return true
+    } })
 
     // 性能自检（M10）。手册里「首次渲染 > 500ms 就上视口虚拟化」是个条件，
     // 而 DOM 的耗时只有在真实环境里才量得准，所以把尺子交到用户手上。

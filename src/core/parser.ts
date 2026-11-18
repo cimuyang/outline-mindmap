@@ -4,6 +4,7 @@
  * 【禁止】import 任何 obsidian API。
  */
 
+import { listBlockEnd } from './blocks'
 import { DEFAULT_OPTIONS, type MindNode, type MindTree, type NodeKind, type ParseOptions } from './types'
 
 // ── A.2 行分类正则 ──────────────────────────────────────────────
@@ -260,6 +261,10 @@ export function parse(text: string, options: ParseOptions = DEFAULT_OPTIONS): Mi
     stack.push(node)
   }
   closeTo(1, lines.length)
+
+  for (const node of byId.values()) {
+    if (node.kind === 'list') node.blockEnd = listBlockEnd(lines, node.titleLine, node.blockEnd)
+  }
 
   // bodyEnd 必须在所有 blockEnd 定稿后再算
   const fill = (n: MindNode): void => {

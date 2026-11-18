@@ -60,6 +60,7 @@ export function visibleNodes(tree: MindTree): MindNode[] {
   const out: MindNode[] = []
   const walk = (n: MindNode): void => {
     for (const c of n.children) {
+      if (c.viewHidden) continue
       out.push(c)
       if (!c.collapsed) walk(c)
     }

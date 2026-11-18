@@ -10,7 +10,7 @@ Demos were recorded with an earlier version; layout direction is now under **Min
 
 ![Outline Mindmap demo](demo1.png)
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.5**
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.8**
 - The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
 ## Features
@@ -164,11 +164,10 @@ The repository includes a [1000-node stress note](bench/1000节点压力测试�
 
 ## Known limitations
 
-- Text-only maps: no summaries, no free-form connections, no images, no notes.
+- Node titles stay lightweight; body cards offer Markdown reading and source editing, without the full Obsidian Live Preview editor.
 - Collapsed state is not persisted; switching notes resets it.
-- Task list items `- [ ]` are treated as plain text; ordered lists are read fine but written
-  back as `-`.
-- Multi-select (`Ctrl/⌘ + click`) is for batch deletion only, not batch drag.
+- Task markers remain part of the item text; ordered and bulleted list formats are preserved.
+- Multi-select (`Ctrl/⌘ + click`) supports deletion and branch clipboard operations, but not batch drag.
 
 ## Development
 
@@ -193,10 +192,32 @@ rather than creating a second copy with the same plugin id.
 
 Before publishing, run `npm test` and `npm run build`. Keep `manifest.json`,
 `package.json`, `package-lock.json` and `versions.json` in sync, then attach
-`main.js`, `manifest.json` and `styles.css` to the `1.3.5` GitHub release.
+`main.js`, `manifest.json` and `styles.css` to the `1.3.8` GitHub release.
 **The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
 
 ## What's new
+
+### v1.3.8
+
+- Simplified body cards and node context menus. Resize floating cards from any edge or corner. Fixed sizing when docking.
+- Fixed the body panel stealing keyboard focus and incorrect targets for multi-selection menus and list-branch pastes.
+- Fixed search and expansion with heading filters, navigation when a note is open in multiple tabs, and missing node underlines in exports.
+
+### v1.3.7
+
+Body cards open in edit mode, autosave after a pause and close with Escape while preserving unsaved drafts. Keep multiple cards open, move and resize them, or dock a panel beside/below the map. Save status lives in the header; the body setting updates immediately. Heading range lives in the toolbar and is remembered per note. Body writes preserve the source editor viewport.
+
+### v1.3.6
+
+- Optional node body cards with Markdown preview, source editing, autosave and a pinned panel that docks below the map in narrow views.
+- Two-way body synchronization, IME-aware saving, conflict protection and device-local draft recovery. Drafts are stored in Obsidian local storage, not in notes or synced plugin settings.
+- Copy/cut/paste whole branches, including body text and folded descendants. Ctrl/Cmd+Shift+V pastes as a sibling. Text editors retain ordinary text shortcuts.
+- One expand/collapse button with H1–H6 range choices, an initial-range setting and configurable commands.
+- Fix list-body boundaries and indentation, subtree depth validation, stale writes and the last drag frame. Reduce unnecessary layout work and settle zoom transforms automatically.
+
+Enable **Node body** in settings. A heading body ends at the next actual heading and includes intervening lists. List bodies follow the item's Markdown block. Changes autosave after a pause; Ctrl/Cmd+S saves immediately. Conflicts keep the draft instead of overwriting the source. Reopen the original node to recover a draft. The editor is Markdown source with a reading-mode toggle, not the full Obsidian Live Preview editor.
+
+Internal cross-note clipboard operations resolve supported relative links against their source. External clipboard text has no source path, so its links remain unchanged.
 
 ### v1.3.5
 

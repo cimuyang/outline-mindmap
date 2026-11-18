@@ -40,10 +40,12 @@ interface Item {
 
 function build(node: MindNode, options: LayoutOptions): Item {
   const size = options.measure(node)
-  const children = node.collapsed ? [] : node.children.map((c) => build(c, options))
+  const children = node.collapsed ? [] : node.children.filter(c => !c.viewHidden).map((c) => build(c, options))
 
   let count = 1
-  for (const c of children) count += c.count
+  const countAll = (n: MindNode): number => 1 + n.children.reduce((sum, c) => sum + countAll(c), 0)
+  if (node.collapsed) count = countAll(node)
+  else for (const c of children) count += c.count
   const childrenBlock = blockOf(children, options.vGap)
 
   // 自身比子树块还高时（长标题换行、子节点很少），带高取自身高度

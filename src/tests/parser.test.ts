@@ -357,16 +357,16 @@ describe('A.8 跨界转换示例', () => {
     ])
   })
 
-  it('正文跟随子树移动，且不做任何缩进调整', () => {
+  it('正文跟随子树移动，保留内部相对缩进', () => {
     const md = '#### 四\n正文一\n\t保持原缩进\n##### 五\n正文二\n'
     const tree = parse(md)
     const four = tree.root.children[0] as MindNode
     expect(serializeSubtree(tree.lines, four, 7, 'list', 7, { strictLineBreak: false, listNodes: true })).toEqual([
       '- 四',
-      '正文一',
-      '\t保持原缩进',
+      '  正文一',
+      '      保持原缩进',
       '\t- 五',
-      '正文二',
+      '      正文二',
     ])
   })
 

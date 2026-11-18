@@ -57,24 +57,27 @@ function matchChildren(oldChildren: MindNode[], newChildren: MindNode[]): Map<Mi
   const pairs = new Map<MindNode, MindNode>()
   const usedOld = new Set<MindNode>()
 
-  const tryMatch = (predicate: (o: MindNode, n: MindNode, i: number) => boolean): void => {
-    for (let i = 0; i < newChildren.length; i++) {
-      const n = newChildren[i]
-      if (!n || pairs.has(n)) continue
-      for (const o of oldChildren) {
-        if (usedOld.has(o)) continue
-        if (predicate(o, n, i)) {
-          pairs.set(n, o)
-          usedOld.add(o)
-          break
-        }
-      }
+  const exact = (key: (node: MindNode) => string): void => {
+    const buckets = new Map<string, { nodes: MindNode[]; index: number }>()
+    for (const old of oldChildren) {
+      if (usedOld.has(old)) continue
+      const k = key(old), bucket = buckets.get(k)
+      if (bucket) bucket.nodes.push(old); else buckets.set(k, { nodes: [old], index: 0 })
+    }
+    for (const node of newChildren) {
+      if (pairs.has(node)) continue
+      const bucket = buckets.get(key(node)), old = bucket?.nodes[bucket.index]
+      if (old && bucket) { bucket.index++; pairs.set(node, old); usedOld.add(old) }
     }
   }
-
-  tryMatch((o, n) => o.text === n.text && o.kind === n.kind)
-  tryMatch((o, n) => o.text === n.text)
-  tryMatch((o, n, i) => oldChildren[i] === o && isSimilar(o.text, n.text))
+  exact(node => JSON.stringify([node.kind, node.text]))
+  exact(node => node.text)
+  for (let i = 0; i < newChildren.length; i++) {
+    const node = newChildren[i]!, old = oldChildren[i]
+    if (old && !pairs.has(node) && !usedOld.has(old) && isSimilar(old.text, node.text)) {
+      pairs.set(node, old); usedOld.add(old)
+    }
+  }
 
   return pairs
 }

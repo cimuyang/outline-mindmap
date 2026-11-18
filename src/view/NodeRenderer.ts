@@ -5,7 +5,8 @@
  * 【不要挂 500 个监听器】——这里一个监听器都不挂，事件由 MindmapView 委托到容器上。
  */
 
-import { finishRenderMath, renderMath } from 'obsidian'
+import { label } from './strings'
+import { finishRenderMath, renderMath, setIcon } from 'obsidian'
 import type { MindNode } from '../core/types'
 import { sideOf, type NodeSide } from '../layout'
 import type { Box, LayoutResult } from '../layout/types'
@@ -123,6 +124,16 @@ export class NodeRenderer {
     }
   }
 
+  setSelection(selected: ReadonlySet<string>): void {
+    for (const [id, slot] of this.active) {
+      const value = selected.has(id)
+      if (slot.selected !== value) { slot.el.toggleClass('is-selected', value); slot.selected = value }
+    }
+  }
+  setBodyIndicators(ids: ReadonlySet<string>): void {
+    for (const [id, slot] of this.active) slot.el.toggleClass('has-body', ids.has(id))
+  }
+
   destroy(): void {
     for (const slot of this.active.values()) slot.el.remove()
     for (const slot of this.pool) slot.el.remove()
@@ -147,12 +158,17 @@ export class NodeRenderer {
     // 留在 DOM 里但隐藏。反复展开/折叠时能直接复用，不必重新创建。
     slot.el.addClass('is-hidden')
     delete slot.el.dataset['nodeId']
-    this.pool.push(slot)
+    if (this.pool.length < 128) this.pool.push(slot)
+    else slot.el.remove()
   }
 
   private create(): Slot {
     const el = createDiv({ cls: 'om-node' })
     const textEl = el.createDiv({ cls: 'om-node-text' })
+    const body = el.createEl('button', { cls: 'om-body-button' })
+    setIcon(body, 'file-text')
+    body.setAttribute('aria-label', label('查看正文', 'Show body'))
+    body.type = 'button'
     // 折叠按钮朝着子节点那一侧（分支向右 → 右侧，向左 → 左侧），点击区靠 CSS 撑大
     const toggleEl = el.createDiv({ cls: 'om-toggle' })
     this.incoming ??= createFragment()
@@ -286,6 +302,9 @@ export class NodeRenderer {
     }
 
     const hasToggle = node.children.length > 0
+    slot.toggleEl.setAttribute('role', 'button')
+    slot.toggleEl.setAttribute('aria-label', label('展开或收起分支', 'Expand or collapse branch'))
+    slot.toggleEl.setAttribute('aria-expanded', String(!node.collapsed))
     if (slot.hasToggle !== hasToggle) {
       slot.toggleEl.toggleClass('is-hidden', !hasToggle)
       slot.hasToggle = hasToggle

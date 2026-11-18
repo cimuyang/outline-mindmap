@@ -161,10 +161,10 @@ export class InlineEditor {
   }
 
   private setRange(collapse: boolean): void {
-    const range = document.createRange()
+    const range = this.input.ownerDocument.createRange()
     range.selectNodeContents(this.input)
     if (collapse) range.collapse(false)
-    const sel = window.getSelection()
+    const sel = this.input.ownerDocument.defaultView?.getSelection()
     sel?.removeAllRanges()
     sel?.addRange(range)
   }

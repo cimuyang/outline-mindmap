@@ -5,6 +5,7 @@
  */
 
 import type { MindNode, MindTree, NodeKind, ParseOptions } from './types'
+import { listContentColumn, reindentBody } from './blocks'
 import { listBaseDepthOf } from './parser'
 
 /** 附录 A.6 序列化公式。 */
@@ -88,15 +89,14 @@ function collectUnits(
   defaultMarker = '-',
 ): void {
   const marker = node.kind === 'list' ? listMarker(lines[node.titleLine]) : defaultMarker
-  units.push({
-    line: kind === 'list' && indent !== undefined
-      ? indent + marker + ' ' + node.text
-      : serializeNode(node.text, depth, kind, listBaseDepth, marker),
-    kind,
-    body: bodyOf(lines, node),
-  })
+  const line = kind === 'list' && indent !== undefined
+    ? indent + marker + ' ' + node.text
+    : serializeNode(node.text, depth, kind, listBaseDepth, marker)
+  units.push({ line, kind, body: reindentBody(bodyOf(lines, node),
+    node.kind === 'list' ? listContentColumn(lines[node.titleLine] ?? '') : 0,
+    kind === 'list' ? listContentColumn(line) : 0) })
 
-  for (const child of node.children) {
+  for (const [index, child] of node.children.entries()) {
     // 保留原树的 depth 差值：`# A` 下直接跟 `### B` 时，B 相对 A 的 +2 必须保留（A.3）。
     const childDepth = depth + (child.depth - node.depth)
     const childKind = resolveChildKind(childDepth, kind, child.kind, rootKindChanged)
@@ -105,6 +105,14 @@ function collectUnits(
     const childIndent = indent === undefined ? undefined : kind === 'list'
       ? indent + ' '.repeat(marker.length + 1) : ''
     collectUnits(units, lines, child, childDepth, childKind, childBase, rootKindChanged, childIndent, defaultMarker)
+    const next = node.children[index + 1]
+    const gapEnd = next?.titleLine ?? node.blockEnd
+    if (child.blockEnd < gapEnd) {
+      const tail = units.at(-1)
+      if (tail) tail.body.push(...reindentBody(lines.slice(child.blockEnd, gapEnd),
+        node.kind === 'list' ? listContentColumn(lines[node.titleLine] ?? '') : 0,
+        kind === 'list' ? listContentColumn(line) : 0))
+    }
   }
 }
 
@@ -112,7 +120,7 @@ function collectUnits(
  * 把一棵子树重新序列化为行数组。跨 6/7 层边界的语法转换走的就是这里。
  *
  * 关键约束（附录 A.7.4 第 5 步）：每个节点自身的正文行原样保留在其节点行之后，
- * 且【不做任何缩进调整】——调整正文缩进会破坏代码块等结构。
+ * 仅调整列表容器缩进，保留代码块等内容的内部相对缩进。
  */
 export function serializeSubtree(
   lines: string[],
