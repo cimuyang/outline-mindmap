@@ -10,7 +10,7 @@ Demos were recorded with an earlier version; layout direction is now under **Min
 
 ![Outline Mindmap demo](demo1.png)
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.8**
+- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.9**
 - The interface follows Obsidian's language: 中文 / English, no setting to touch.
 
 ## Features
@@ -192,14 +192,19 @@ rather than creating a second copy with the same plugin id.
 
 Before publishing, run `npm test` and `npm run build`. Keep `manifest.json`,
 `package.json`, `package-lock.json` and `versions.json` in sync, then attach
-`main.js`, `manifest.json` and `styles.css` to the `1.3.8` GitHub release.
+`main.js`, `manifest.json` and `styles.css` to the `1.3.9` GitHub release.
 **The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
 
 ## What's new
 
+### v1.3.9
+
+- Fixed local recovery of body drafts and per-note heading depth on older Obsidian versions.
+- Improved body card docking, stacking, and autosave in pop-out windows.
+- Added native settings search on Obsidian 1.13 and later.
+
 ### v1.3.8
 
-- Improved body card, pop-out window and settings search compatibility.
 - Simplified body cards and node context menus. Resize floating cards from any edge or corner. Fixed sizing when docking.
 - Fixed the body panel stealing keyboard focus and incorrect targets for multi-selection menus and list-branch pastes.
 - Fixed search and expansion with heading filters, navigation when a note is open in multiple tabs, and missing node underlines in exports.
