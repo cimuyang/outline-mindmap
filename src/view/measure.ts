@@ -81,6 +81,11 @@ export function readFont(el: HTMLElement, scale = 1): FontSpec {
   }
 }
 
+export function headingFont(base: FontSpec, percent: number): FontSpec {
+  const size = Math.max(6, Math.round(base.size * percent / 50) / 2)
+  return size === base.size ? base : { ...base, size, lineHeight: Math.round(size * 1.45), key: base.key + '/' + size }
+}
+
 function fontOf(seg: Pick<InlineSegment, 'bold' | 'italic' | 'code' | 'vertical'>, font: FontSpec): string {
   const size = seg.vertical ? font.size * 0.75 : font.size
   const family = seg.code ? font.monospace ?? 'monospace' : font.family
@@ -296,10 +301,11 @@ function mathWidth(
   return measured * 1.2 + font.size * 2 + explicitWidth
 }
 
-function tokenize(text: string, font: FontSpec): Token[] {
+function tokenize(text: string, font: FontSpec, literal: boolean): Token[] {
   const c = context()
   const tokens: Token[] = []
-  for (const seg of parseInline(text)) {
+  const segments: InlineSegment[] = literal ? [{ text, bold: false, italic: false, strike: false, highlight: false, link: false }] : parseInline(text)
+  for (const seg of segments) {
     const f = fontOf(seg, font)
     if (c) c.font = f
     if (seg.math) {
@@ -448,13 +454,13 @@ const CACHE_LIMIT = 8000
  * 宽度向上取整并留 1px 余量：canvas 的测量是亚像素的，DOM 排版也是，
  * 但两者的舍入不一定一致，差半像素就可能多折出一行。
  */
-export function measureNode(text: string, font: FontSpec): Size {
+export function measureNode(text: string, font: FontSpec, literal = false): Size {
   // 换行符做分隔符：字体名和节点文本都不可能含换行，不会出现两个不同键撞成同一串
-  const key = `${font.key}\n${text}`
+  const key = `${literal}:${font.key}\n${text}`
   const hit = cache.get(key)
   if (hit) return hit
 
-  const tokens = tokenize(text, font)
+  const tokens = tokenize(text, font, literal)
   const { width, height } = wrap(tokens, MAX_TEXT_WIDTH, font.size, font.lineHeight)
   const size: Size = {
     w: Math.max(MIN_TEXT_WIDTH, Math.ceil(width) + 1) + PADDING_X * 2 + BORDER * 2,

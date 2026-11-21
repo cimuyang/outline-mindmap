@@ -74,8 +74,9 @@ export class InlineEditor {
   }
 
   /** 打开编辑框。文字整体选中——F2 之后直接打字就是覆盖，这是重命名最常见的意图。 */
-  start(box: Box, text: string): void {
+  start(box: Box, text: string, heading = 0): void {
     this.open = true
+    this.host.dataset.heading = String(heading)
     this.input.textContent = text
     this.place(box)
     this.host.removeClass('is-hidden')

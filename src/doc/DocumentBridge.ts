@@ -513,7 +513,8 @@ export class DocumentBridge {
     const file = this.file
     if (!file) return
     const version = this.changeVersion
-    const text = await this.readText(file)
+    // A burst of branch commands updates the view before queued disk writes finish.
+    const text = await this.settledText(file)
     if (this.file !== file || version !== this.changeVersion) return
 
     // 文件当前内容正好等于我们写过的某一份 → 这是自己的回声。

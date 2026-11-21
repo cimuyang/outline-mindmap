@@ -74,7 +74,7 @@ import { NodeRenderer } from './NodeRenderer'
 import { Toolbar } from './Toolbar'
 import { LayoutMotion, MOTION_NODE_LIMIT } from './LayoutMotion'
 import { searchState, searchTargets, type SearchState } from './search'
-import { clearMeasureCache, measureNode, readFont, toggleSize, type FontSpec } from './measure'
+import { clearMeasureCache, headingFont, measureNode, readFont, toggleSize, type FontSpec } from './measure'
 
 export const VIEW_TYPE_MINDMAP = 'outline-mindmap'
 
@@ -116,6 +116,7 @@ export class MindmapView extends ItemView {
 
   private file: TFile | null = null
   private tree: MindTree | null = null
+  private headingFonts: FontSpec[] = []
   private font: FontSpec | null = null
   private boxes: LayoutResult = new Map()
   private bounds: Box = { x: 0, y: 0, w: 0, h: 0 }
@@ -821,7 +822,7 @@ export class MindmapView extends ItemView {
       root.style.setProperty('--om-custom-level-' + (i + 1), rgb ?? '')
     }
     // 字号缩放变了 → 之前量出来的每一个宽高都作废
-    if (changed && prev.fontScale !== next.fontScale) this.font = null
+    if (changed && (prev.fontScale !== next.fontScale || prev.sizeByHeading !== next.sizeByHeading || prev.headingSizes !== next.headingSizes)) this.font = null
     this.style = next
     this.direction = next.direction
     return changed
@@ -1103,7 +1104,7 @@ export class MindmapView extends ItemView {
       // 根之间的距离跟着纵向间距走，但不小于默认值：纵向间距调大之后，
       // 两棵根挨得比同一棵树里的兄弟还近，看上去就像它们是一家的
       rootGap: Math.max(DEFAULT_LAYOUT.rootGap, this.style.vGap * 2),
-      measure: (node) => { const box = measureNode(node.text, font); return this.host.settings.nodeBody ? { ...box, w: box.w + 24 } : box },
+      measure: (node) => { const box = measureNode(node.text, node.kind === 'heading' ? this.headingFonts[node.depth - 1] ?? font : font, this.session?.node === node); return this.host.settings.nodeBody ? { ...box, w: box.w + 24 } : box },
     }
   }
 
@@ -1119,6 +1120,12 @@ export class MindmapView extends ItemView {
       // 折叠按钮跟着字号缩放走（M11）。命中区是 CSS 里另外撑出来的，与这个直径无关
       '--om-toggle-size': `${toggleSize(this.style.fontScale)}px`,
     })
+    this.headingFonts = this.style.sizeByHeading ? this.style.headingSizes.map(percent => headingFont(font, percent)) : []
+    for (const [index, spec] of this.headingFonts.entries()) {
+      this.contentEl.style.setProperty('--om-h' + (index + 1) + '-size', spec.size + 'px')
+      this.contentEl.style.setProperty('--om-h' + (index + 1) + '-line', spec.lineHeight + 'px')
+    }
+    this.contentEl.toggleClass('om-heading-sizes', this.style.sizeByHeading)
     this.font = font
     return font
   }
@@ -1500,9 +1507,41 @@ export class MindmapView extends ItemView {
     }).join('\n')
   }
 
+  private movementTarget(node: MindNode, action: string): DropResult | null {
+    const parent = node.parent
+    if (!parent) return null
+    const index = parent.children.indexOf(node)
+    const parentId = parent.parent ? parent.id : null
+    if (action === 'move-up' && index > 0) return { parentId, index: index - 1 }
+    if (action === 'move-down' && index + 1 < parent.children.length) return { parentId, index: index + 1 }
+    if (action === 'move-promote' && parent.parent) {
+      const grand = parent.parent
+      return { parentId: grand.parent ? grand.id : null, index: grand.children.indexOf(parent) + 1 }
+    }
+    const previous = parent.children[index - 1]
+    if (action === 'move-demote' && previous) return { parentId: previous.id, index: previous.children.length }
+    return null
+  }
+
+  canMoveBranch(action: string): boolean {
+    const node = this.selectedNode()
+    const active = this.contentEl.ownerDocument.activeElement
+    return !!node && this.selection.size === 1 && !this.session && !this.historyBusy && !this.drag?.active &&
+      !active?.closest('input, textarea, [contenteditable]:not([contenteditable=false]), .cm-editor') &&
+      this.canEdit() && !!this.movementTarget(node, action)
+  }
+
   async runAction(action: string): Promise<void> {
     const active = this.contentEl.ownerDocument.activeElement
     if (active?.closest('input, textarea, [contenteditable=true], .cm-editor')) return
+    if (action.startsWith('move-')) {
+      const node = this.selectedNode()
+      if (node && this.canMoveBranch(action)) {
+        const target = this.movementTarget(node, action)
+        if (target) this.onDrop(node.id, target, true)
+      }
+      return
+    }
     if (action === 'copy') return this.clipboardAction('c')
     if (action === 'cut') return this.clipboardAction('x')
     if (action === 'paste') return this.clipboardAction('v')
@@ -1735,7 +1774,7 @@ export class MindmapView extends ItemView {
       return
     }
     this.canvas.ensureVisible(box)
-    this.editor.start(box, text)
+    this.editor.start(box, text, node.kind === 'heading' ? node.depth : 0)
   }
 
   /** 输入时的乐观更新：直接改内存里的 text → 重排 → 编辑框跟着新盒子走。 */
@@ -1873,7 +1912,7 @@ export class MindmapView extends ItemView {
   }
 
   /** 拖拽落点（M6）。结构变更本身全在 core/tree.ts 的 `moveSubtree` 里。 */
-  private readonly onDrop = (dragId: string, result: DropResult): void => {
+  private readonly onDrop = (dragId: string, result: DropResult, keyboard = false): void => {
     if (!this.canEdit()) return
     const tree = this.tree
     if (!tree || !this.file) return
@@ -1891,7 +1930,30 @@ export class MindmapView extends ItemView {
 
     let plan: EditPlan
     try {
-      plan = moveSubtree(tree, dragId, result.parentId, result.index, this.parseOptions())
+      const node = tree.byId.get(dragId)!
+      const destination = result.parentId ? tree.byId.get(result.parentId)! : tree.root
+      if (keyboard && destination === node.parent) {
+        const other = destination.children[result.index]!
+        const [first, second] = node.titleLine < other.titleLine ? [node, other] : [other, node]
+        const gap = tree.lines.slice(first.blockEnd, second.titleLine)
+        if (gap.some(line => line.trim())) throw new Error(label('两分支之间含独立正文，无法直接换位。', 'The branches have intervening body text.'))
+        plan = [{ fromLine: first.titleLine, toLine: second.blockEnd, lines: [
+          ...tree.lines.slice(second.titleLine, second.blockEnd), ...gap, ...tree.lines.slice(first.titleLine, first.blockEnd),
+        ] }]
+      } else {
+        const promotedDepth = keyboard && node.parent?.parent === destination ? node.parent.depth : undefined
+        plan = moveSubtree(tree, dragId, result.parentId, result.index, this.parseOptions(), promotedDepth)
+      }
+      if (keyboard) {
+        const preview = parse(joinLines(applyPlan(tree.lines, plan), tree.eol), this.parseOptions())
+        const matches = (old: MindNode, next: MindNode): boolean => {
+          const children = old.children.filter(child => child !== node)
+          if (old === destination) children.splice(result.index, 0, node)
+          return old.text === next.text && children.length === next.children.length &&
+            children.every((child, i) => matches(child, next.children[i]!))
+        }
+        if (!matches(tree.root, preview.root)) throw new Error(label('此位置会改变其他分支的归属。', 'This move would change another branch’s parent.'))
+      }
     } catch (err) {
       this.report(err)
       return

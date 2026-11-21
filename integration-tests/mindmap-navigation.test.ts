@@ -33,6 +33,24 @@ function setup(content = '# Parent\n## word\nbody word\n# Other') {
 }
 
 describe('MindmapView search and undo interactions', () => {
+  it('reorders skipped heading levels and reverses a demotion without losing selection', async () => {
+    const original = '# Root\n### A\nBody A\n### B\nBody B'
+    const { view } = setup(original)
+    view.bridge.applyPlan = vi.fn(async () => {})
+    view.reveal = vi.fn()
+    const b = view.tree.root.children[0].children[1]
+    view.setSelection(b.id)
+    await view.runAction('move-up')
+    expect(view.tree.lines.join('\n')).toBe('# Root\n### B\nBody B\n### A\nBody A')
+    await view.runAction('move-down')
+    await view.runAction('move-demote')
+    expect(view.tree.lines).toContain('#### B')
+    await view.runAction('move-promote')
+    expect(view.selectedNode().text).toBe('B')
+    expect(view.tree.lines.join('\n')).toBe(original)
+    expect(view.bridge.applyPlan).toHaveBeenCalledTimes(4)
+  })
+
   it('retries search positioning after the initially hidden viewport becomes measurable', () => {
     const { view, match } = setup()
     view.canvas.centerOn.mockReturnValueOnce(false)

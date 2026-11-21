@@ -14,6 +14,7 @@ export interface InlineSegment {
   text: string
   bold: boolean
   italic: boolean
+  highlightColor?: string
   highlight: boolean
   strike: boolean
   /** 这一段是链接的可读文字。只做视觉区分，不可点击（导图的单击已经用于跳转笔记）。 */
@@ -27,6 +28,10 @@ export interface InlineSegment {
 }
 
 /** 顺序即优先级：必须先匹配最长的 `***`，否则会被拆成 `**` + `*`。 */
+const highlightColors: Record<string, string> = {
+  '🔴': 'red', '🟠': 'orange', '🟡': 'yellow', '🟢': 'green', '🔵': 'blue', '🟣': 'purple',
+}
+
 const MARKERS = ['***', '**', '*', '==', '~~'] as const
 type Marker = (typeof MARKERS)[number]
 
@@ -183,17 +188,19 @@ export function parseInline(text: string): InlineSegment[] {
   const segs: InlineSegment[] = []
   const stack: Marker[] = []
   let buf = ''
+  let highlightColor: string | undefined
+  const currentStyle = (link: boolean, math = false) => ({ ...styleOf(stack, link, math), ...(highlightColor ? { highlightColor } : {}) })
 
   /** @param link 这一批文字是不是链接的可读文字。链接片段单独 flush，不与普通文字合并。 */
   const flush = (link = false, math = false): void => {
     if (buf === '') return
-    const style = styleOf(stack, link, math)
+    const style = currentStyle(link, math)
     const last = segs[segs.length - 1]
     if (
       last &&
       last.bold === style.bold &&
       last.italic === style.italic &&
-      last.highlight === style.highlight &&
+      last.highlight === style.highlight && last.highlightColor === style.highlightColor &&
       last.strike === style.strike &&
       last.link === style.link &&
       last.math === style.math &&
@@ -219,7 +226,7 @@ export function parseInline(text: string): InlineSegment[] {
       const span = COLOR_SPAN.exec(text)
       if (span) {
         flush()
-        const segment: InlineSegment = { text: span[3]!, ...styleOf(stack, false) }
+        const segment: InlineSegment = { text: span[3]!, ...currentStyle(false) }
         for (const declaration of span[2]!.split(';')) {
           const [property, value] = declaration.trim().toLowerCase().split(/\s*:\s*/)
           if (!value) continue
@@ -234,7 +241,7 @@ export function parseInline(text: string): InlineSegment[] {
       const vertical = VERTICAL_SPAN.exec(text)
       if (vertical) {
         flush()
-        segs.push({ text: vertical[2]!, ...styleOf(stack, false), vertical: vertical[1]!.toLowerCase() === 'sup' ? 'sup' : 'sub' })
+        segs.push({ text: vertical[2]!, ...currentStyle(false), vertical: vertical[1]!.toLowerCase() === 'sup' ? 'sup' : 'sub' })
         i += vertical[0].length
         continue
       }
@@ -250,7 +257,7 @@ export function parseInline(text: string): InlineSegment[] {
         if (literal.startsWith(' ') && literal.endsWith(' ') && /[^ ]/.test(literal)) {
           literal = literal.slice(1, -1)
         }
-        segs.push({ text: literal, ...styleOf(stack, false), code: true })
+        segs.push({ text: literal, ...currentStyle(false), code: true })
         i = closer.index + width
       } else {
         buf += text.slice(i, end)
@@ -286,6 +293,7 @@ export function parseInline(text: string): InlineSegment[] {
       if (stack[stack.length - 1] === m) {
         flush()
         stack.pop()
+        if (m === '==') highlightColor = undefined
         i += m.length
         continue
       }
@@ -294,6 +302,11 @@ export function parseInline(text: string): InlineSegment[] {
         flush()
         stack.push(m)
         i += m.length
+        if (m === '==') {
+          const symbol = text.slice(i, i + 2)
+          highlightColor = highlightColors[symbol]
+          if (highlightColor) i += symbol.length
+        }
         continue
       }
     }
@@ -333,7 +346,7 @@ export function tagsFor(seg: InlineSegment): InlineTag[] {
   if (seg.vertical) tags.push({ tag: seg.vertical })
   if (seg.link) tags.push({ tag: 'span', cls: 'om-link' })
   if (seg.strike) tags.push({ tag: 's' })
-  if (seg.highlight) tags.push({ tag: 'mark' })
+  if (seg.highlight) tags.push(seg.highlightColor ? { tag: 'mark', cls: 'om-highlight-' + seg.highlightColor } : { tag: 'mark' })
   if (seg.italic) tags.push({ tag: 'em' })
   if (seg.bold) tags.push({ tag: 'strong' })
   return tags

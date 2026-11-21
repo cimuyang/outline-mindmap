@@ -144,6 +144,10 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
     })
 
     for (const [id, zh, en] of [
+      ['move-up', '移动分支 · 同级上移', 'Move branch · Up'],
+      ['move-down', '移动分支 · 同级下移', 'Move branch · Down'],
+      ['move-promote', '移动分支 · 提升一级', 'Move branch · Promote'],
+      ['move-demote', '移动分支 · 降低一级', 'Move branch · Demote'],
       ['copy', '复制分支', 'Copy branch'], ['cut', '剪切分支', 'Cut branch'],
       ['paste', '粘贴为子节点', 'Paste as child'], ['paste-sibling', '粘贴为同级', 'Paste as sibling'],
       ['copy-title', '仅复制标题', 'Copy title'], ['body', '查看或编辑正文', 'Show or edit body'],
@@ -152,7 +156,7 @@ export default class OutlineMindmapPlugin extends Plugin implements MindmapHost 
       ...[1, 2, 3, 4, 5, 6].map(level => [`level-${level}`, `标题显示到 H${level}`, `Headings through H${level}`]),
     ]) this.addCommand({ id: id!, name: label(zh!, en!), checkCallback: checking => {
       const view = this.app.workspace.getActiveViewOfType(MindmapView)
-      if (!view) return false
+      if (!view || (id!.startsWith('move-') && !view.canMoveBranch(id!))) return false
       if (!checking) void view.runAction(id!)
       return true
     } })

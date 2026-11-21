@@ -9,7 +9,7 @@
 
 import { DEFAULT_LAYOUT, type BranchStyle, type LayoutDirection } from '../layout/types'
 
-export type NodeShape = 'rounded' | 'pill' | 'underline'
+export type NodeShape = 'rounded' | 'pill' | 'underline' | 'text'
 export type ColorScheme = 'theme' | 'blue' | 'green' | 'warm'
 
 export interface MindmapStyle {
@@ -22,6 +22,8 @@ export interface MindmapStyle {
   branch: BranchStyle
   scheme: ColorScheme
   /** 字号缩放。1 = 跟随主题字号。 */
+  sizeByHeading: boolean
+  headingSizes: readonly number[]
   fontScale: number
   /** 多彩标题：按层级给节点文字与边框着色（层级色板在 styles.css）。 */
   colorByLevel: boolean
@@ -37,9 +39,11 @@ export const STYLE_LIMITS = {
   fontScale: { min: 0.6, max: 2, step: 0.05 },
 } as const
 
-const SHAPES: readonly NodeShape[] = ['rounded', 'pill', 'underline']
+const SHAPES: readonly NodeShape[] = ['rounded', 'pill', 'underline', 'text']
 const SCHEMES: readonly ColorScheme[] = ['theme', 'blue', 'green', 'warm']
 const BRANCHES: readonly BranchStyle[] = ['straight', 'curve', 'elbow']
+
+export const DEFAULT_HEADING_SIZES = [125, 112.5, 106.25, 100, 100, 100] as const
 
 export const DEFAULT_STYLE: MindmapStyle = {
   direction: DEFAULT_LAYOUT.direction,
@@ -50,6 +54,8 @@ export const DEFAULT_STYLE: MindmapStyle = {
   branch: 'elbow',
   scheme: 'blue',
   fontScale: 1,
+  sizeByHeading: false,
+  headingSizes: DEFAULT_HEADING_SIZES,
   colorByLevel: false,
 }
 
@@ -107,6 +113,9 @@ export function normalizeStyle(raw: unknown, base: MindmapStyle = DEFAULT_STYLE)
     shape: pick(o['shape'], SHAPES, base.shape),
     branch: pick(o['branch'], BRANCHES, base.branch),
     scheme: pick(o['scheme'], SCHEMES, base.scheme),
+    sizeByHeading: typeof o.sizeByHeading === 'boolean' ? o.sizeByHeading : base.sizeByHeading,
+    headingSizes: DEFAULT_HEADING_SIZES.map((fallback, i) => num(Array.isArray(o.headingSizes) ? o.headingSizes[i] : undefined,
+      base.headingSizes[i] ?? fallback, { min: 75, max: 200 })),
     fontScale: num(o['fontScale'], base.fontScale, STYLE_LIMITS.fontScale),
     colorByLevel: typeof o['colorByLevel'] === 'boolean' ? o['colorByLevel'] : base.colorByLevel,
   }
@@ -134,7 +143,8 @@ export function sameStyle(a: MindmapStyle, b: MindmapStyle): boolean {
     a.shape === b.shape &&
     a.branch === b.branch &&
     a.scheme === b.scheme &&
-    a.fontScale === b.fontScale &&
+    a.fontScale === b.fontScale && a.sizeByHeading === b.sizeByHeading &&
+    a.headingSizes.join() === b.headingSizes.join() &&
     a.background === b.background && a.edgeColor === b.edgeColor &&
     (a.levelColors ?? []).join(',') === (b.levelColors ?? []).join(',') &&
     a.colorByLevel === b.colorByLevel

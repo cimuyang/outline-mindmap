@@ -319,6 +319,8 @@ export class NodeRenderer {
       slot.left = left
     }
     // 多彩标题的层级 class：列表层级可以超过 6，色板按 6 一循环
+    const heading = node.kind === 'heading' ? String(node.depth) : '0'
+    if (slot.el.dataset.heading !== heading) slot.el.dataset.heading = heading
     const level = ((node.depth - 1) % 6) + 1
     if (slot.level !== level) {
       slot.el.removeClass(`om-l${slot.level}`)

@@ -30,6 +30,14 @@ function styleWith(patch: Partial<MindmapStyle>): MindmapStyle {
 }
 
 describe('normalizeStyle（脏配置收拢）', () => {
+  it('inherits missing heading sizes and bounds saved overrides independently of the toggle', () => {
+    const base = normalizeStyle({ sizeByHeading: true, headingSizes: [130, 115] })
+    const style = normalizeStyle({ sizeByHeading: false, headingSizes: [999, null, 0] }, base)
+    expect(style.headingSizes).toEqual([200, 115, 75, 100, 100, 100])
+    expect(style.sizeByHeading).toBe(false)
+    expect(sameStyle(base, { ...base, headingSizes: [...base.headingSizes] })).toBe(true)
+    expect(sameStyle(base, style)).toBe(false)
+  })
   it('空输入 → 默认样式', () => {
     expect(normalizeStyle(undefined)).toEqual(DEFAULT_STYLE)
     expect(normalizeStyle(null)).toEqual(DEFAULT_STYLE)

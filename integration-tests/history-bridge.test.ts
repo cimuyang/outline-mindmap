@@ -79,6 +79,7 @@ describe('DocumentBridge file/editor history', () => {
     let release!: (text: string) => void
     s.app.vault.cachedRead = vi.fn(() => new Promise<string>(resolve => { release = resolve }))
     const emit = (s.bridge as any).emit()
+    await Promise.resolve() // Let the queued read start before publishing a newer revision.
     s.history.publish(s.file, '# New')
     release('# A')
     await emit

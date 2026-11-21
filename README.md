@@ -1,265 +1,68 @@
 # Outline Mindmap
 
-**English** · [中文](readme-zh.md) · [插件介绍（可在 Obsidian 里直接打开的演示笔记）](插件介绍.md)
+[中文说明](readme-zh.md) · [Download](https://github.com/cimuyang/outline-mindmap/releases/latest) · [Screenshot](demo1.png)
 
-Turn a Markdown note’s outline into a mindmap with live two-way editing, click-to-locate navigation and customizable styles. The note remains the source of truth; settings stay in the plugin’s `data.json`, without adding frontmatter, tags or hidden markers.
+Turn an Obsidian note’s headings into an editable mind map. Rearrange chapters on the canvas, then open a body card beside a heading to keep writing. The headings, paragraphs and edits all live in the original Markdown file.
 
-![Outline Mindmap demo](demo.gif)
+![An Obsidian note alongside its editable outline map](demo.gif)
 
-Demos were recorded with an earlier version; layout direction is now under **Mindmap → Appearance**.
+The demo shows an earlier interface. The steps below use the 1.3.11 menu names.
 
-![Outline Mindmap demo](demo1.png)
+## What makes it useful
 
-- **Obsidian** 1.7.2+ · desktop and mobile · **v1.3.9**
-- The interface follows Obsidian's language: 中文 / English, no setting to touch.
+- **Edit one note from two views.** Rename a heading in the note and its node updates. Move a branch on the map and its paragraphs and subheadings move with it. Your note stays ordinary Markdown, without extra properties or hidden markers.
+- **Write with the outline in view.** Open a section’s body beside its node. Keep several cards open to compare passages, or dock a panel that follows the selected node.
+- **Find a passage in context.** Click a sidebar node to reveal its heading in the open note. When you open an Obsidian search result in a map, matching branches can be revealed, with a way back to the source for matches in body text.
+- **Choose how each note reads.** Show just the first two heading levels of a long draft, or expand lists and color the branches of a reference note. Save an appearance for one note or make it your default.
 
-## Features
+## Quick start
 
-- **Two-way editing**: Add, rename, delete and rearrange nodes. Body text moves with its heading; write-back replaces only the affected line range and preserves surrounding content and formatting.
-- **Navigation**: Locate nodes in a visible note, including Reading view. Search results reveal and highlight matches; undo/redo also works in map-only mode.
-- **Note ⇄ map**: Switch within the same tab and optionally remember how each note opens.
-- **Flexible content**: Show headings by default or enable list nodes, with inline formatting, link labels and math.
-- **Styles and layout**: Customize shapes, colors, fonts, spacing, edges and branch direction, with global/per-note settings, live preview and Cancel.
-- **Convenient controls**: Keyboard shortcuts, smooth animation, per-note locking, zoom and position memory, and touch pinch/pan.
+1. **Install.** Requires Obsidian 1.7.2 or later. Download `main.js`, `manifest.json` and `styles.css` from [GitHub Releases](https://github.com/cimuyang/outline-mindmap/releases/latest). Place them in your vault’s `.obsidian/plugins/outline-mindmap/` folder, then enable **Outline Mindmap** under **Settings → Community plugins**.
+2. **Open a map.** Open a note with headings and click the mind map icon in the left ribbon. The map opens in the right sidebar alongside the note.
+3. **Try a two-way edit.** With the note in Editing view, double-click a node, rename it and press `Shift+Enter`. Watch the heading update in the note. Edit that heading in the note to see the change appear on the map.
 
-One map action is one undo. Open editors use native history; map-only views use bounded session history and refuse to overwrite external changes.
+## Using the map
 
-## Install
+### Open, follow and navigate
 
-Not in the community plugin browser yet, so install manually:
-
-1. Download `main.js`, `manifest.json` and `styles.css` from the
-   [Releases](../../releases/latest) page — those three files are the whole plugin.
-2. Put them in `<your vault>/.obsidian/plugins/outline-mindmap/`
-3. Enable **Outline Mindmap** under *Settings → Community plugins*
-
-`main.js` is a build artifact and is **not** committed here, so cloning the repository is not a
-shortcut to installing — build it, or take the release.
-
-Building from source:
-
-```bash
-npm ci
-npm run build     # type-check + bundle into main.js
-```
-
-## Usage
-
-Four ways to open the map:
-
-- The mindmap icon in the left ribbon → opens in the **right sidebar**
-- Command palette → *打开导图* (Open mindmap) → opens as a **tab in the main area**
-- Command palette → *在侧边栏打开导图* (Open mindmap in the sidebar)
-- A note's ⋯ menu → **打开为导图** (Open as mindmap): the current tab turns into a map in place
-  (right-clicking a note in the file explorer offers the same item)
-
-Use **Open as note** in the map’s menu to return within the same tab, restoring the previous Reading/Editing mode.
-
-- **Separate map views**: Use **Open mindmap** for a tab or **Open mindmap in sidebar** for the sidebar. Each has its own follow settings.
-- **Per-note maps**: **Open as mindmap** converts the note’s tab in place and stays on that note. The opening form can be remembered; form changes do not enter tab history.
-
-In map-only mode, a node click selects it without opening a note. To read prose alongside the map, use the sidebar or a split pane. Click-to-locate only scrolls a note that is already visible.
-
-### How a note becomes a map
-
-| In the note | Level in the map |
+| To… | Do this |
 | --- | --- |
-| `# Heading` … `###### Heading` | Levels 1–6 |
-| `- list item` (one level = 4 spaces or one tab of indent) | Level 7 and deeper (can be turned off — see *Show list items as nodes*) |
-| Body paragraphs under a heading | Not shown, but **move together with their heading** |
-| A `#` inside a fenced code block | Not a heading, never appears in the map |
+| Read the note and map together | Click the ribbon icon. Click a node to scroll the visible note to its source. |
+| Open a map in the main workspace | Run **Open mindmap** from the command palette. Under **Opening and following**, choose to follow the active note, keep one fixed or open a map per note. The sidebar has its own setting. |
+| Switch the current tab to a map | Choose **Open as mindmap** from the note’s ⋯ menu. Use **Open as note** in the map tab’s menu to return. The plugin can remember the opening view for each note. |
+| Navigate a large map | Use the toolbar to fit, zoom, expand or collapse. The menu beside the fold control limits the map to a heading level from H1 to H6. On touch screens, use two fingers to pan and zoom. |
+| Browse without editing | Click the toolbar lock. A note in Reading view also locks map edits while keeping folding and navigation available. Switch the note to Editing view to make changes. |
 
-Inline markup in node text — `**bold**`, `*italic*`, `***bold italic***`, `==highlight==`,
-`~~strikethrough~~` — is rendered as such and nests freely. An unpaired `*` (as in `2 * 3`) is
-plain text and is never swallowed.
+By default, headings from `#` through `######` form the map. To include lists, enable bulleted or numbered nodes separately under **Nodes and editing**. Titles display emphasis, default and colored highlights, inline code, link labels and inline math.
 
-Inline math written as `$...$` is rendered by Obsidian's own MathJax engine. Math can sit next
-to ordinary text and other inline markup; malformed expressions fall back to their editable
-source instead of breaking the map. Display-math blocks (`$$...$$`) remain note body content.
+### Edit and move branches
 
-Links show **only the readable part**, so paths and URLs cost no node width:
+Select a node in an editable map first. Below, `Mod` means `Ctrl` on Windows/Linux and `⌘` on macOS.
 
-| In the note | Shown in the map |
+| Action | How |
 | --- | --- |
-| `[[Some note]]` | Some note |
-| `[[folder/target\|alias]]` | alias |
-| `[[note#section]]`, `[[#section]]` | section |
-| `[text](https://…)` | text |
+| Add a sibling / child | Press `Enter` / `Tab`. Double-click empty canvas space to start another root. |
+| Rename a heading | Double-click or press `F2` to edit its Markdown. Press `Shift+Enter` to finish or `Esc` to cancel the title edit. |
+| Drag a section | Drop on a node’s top or bottom edge to insert before or after it. Drop in the center to make the branch a child. |
+| Move with the keyboard | In plugin settings, open **Interaction → Branch movement hotkeys → Configure**. Assign keys for moving up, moving down, promoting and demoting. All four start unassigned. |
+| Copy, cut and paste | `Mod+C` / `Mod+X` copies or cuts the Markdown branch, including its body and folded descendants. `Mod+V` pastes as a child, and `Mod+Shift+V` as a sibling. |
+| Delete or undo | `Delete` / `Backspace` removes the selected branch and its body. Use `Mod+Z` to undo and `Mod+Shift+Z` to redo. Undo also works in a map-only tab. |
 
-Link text is tinted with the theme's link colour but is **not clickable** — a click in the map
-already means "jump to the matching line in the note", and competing for the same click would
-only make it unpredictable.
+### Write in body cards
 
-### Keyboard
+1. In plugin settings, turn on **Body cards → Node body**. Click the body icon beside a node to edit that section, or to preview it in Reading view.
+2. Write in Markdown. The card saves after you pause, or immediately with `Mod+S`. Use the header control to switch between reading and editing. If the source changes and conflicts with an edit, the card flags it and keeps your draft on the device.
+3. From the card’s **⋯** menu, choose **Keep card open** before opening another passage to compare them. Choose **Dock panel** for a fixed writing area. It docks at the bottom in narrow windows. Drag a floating card by its header or resize it from an edge or corner.
 
-| Key | Action |
-| --- | --- |
-| `↑` `↓` | Previous / next node: siblings first, then out to the enclosing level |
-| `→` (the "go in" direction) | Expand a collapsed branch, or enter its first child if already expanded |
-| `←` (the "go back" direction) | Collapse an expanded branch, or go to the parent if already collapsed |
-| `Enter` | Add a sibling after the current node |
-| `Tab` | Add a child to the current node |
-| `F2` / double-click a node | Rename |
-| `Delete` / `Backspace` | Delete the selected node and its whole subtree |
-| `Ctrl/⌘ + Z` | Undo (also works with only the map open) |
-| `Ctrl/⌘ + Shift + Z` / `Ctrl + Y` | Redo |
-| `Esc` | Abandon the current edit or drag — not a single character is written |
-| Double-click empty space | Create a new free root node |
-| `Ctrl/⌘ + click` | Add to / remove from the selection (for deleting a batch) |
-| Drag a node | Reorder: drop on a node's top/bottom edge = insert before / after, drop in the middle = become its child, drop on empty space = become a new root |
-| Wheel | Pan; hold `Ctrl/⌘` to zoom around the pointer |
+### Style and export
 
-Left and right on the arrow keys are interpreted **relative to the direction the node grows**:
-when a branch runs leftwards, `←` is the key that takes you *into* its children.
+1. In the map toolbar, open **Mindmap → Appearance**. Choose left, right or two-sided branches, then a node shape and connector style. Use **Text only** for a map of labels and lines.
+2. Toggle **Color by level** and **Size headings by level** independently. Set the base font size under **Details**, then expand **Customize heading sizes** to adjust H1–H6. List nodes keep the base size. Preview the result, choose **This note** or **Global**, and click **Apply**.
+3. Switch to **Export**. Choose the visible branches or expand the entire map, then select a background. More options cover padding, quality and PDF page size. Click PNG, SVG or PDF to export.
 
-### Toolbar
+## Recent updates
 
-Fit to canvas · Zoom out · Zoom in · Expand all · Collapse all · Lock · Mindmap.
+- **1.3.11** · Fixed default highlights and matched all six named colors to the native theme. Added individual H1–H6 sizes with live preview.
+- **1.3.10** · Added four assignable branch movement commands, text-only nodes and six-color highlights. Improved title wrapping while renaming.
 
-Layout direction (branches right / left / both sides) is under **Mindmap → Appearance**, with the same
-global and per-note saving, live preview and Cancel behavior as other styles.
-
-The lock remembers your manual choice for each note. A locked map still follows changes made
-in the note, and allows navigation, pan, zoom, fold/unfold and style changes. It cannot rename,
-add, delete or rearrange nodes, or undo/redo changes. **Reading view forces the map to lock**;
-returning to Editing view restores your manual choice. A visible Reading view of the same note
-takes precedence if that note is open in several panes. Converting a Reading tab to a pure map
-keeps its Reading mode; use *Open as note* to change the note's mode.
-
-Each note remembers its **zoom and viewing position**, including after a restart. The saved
-point stays centered when the viewport changes size. If changed content leaves that region
-empty, the map shows a nearby node at the saved zoom. Folded state remains session-only,
-so changed layouts are not guaranteed to put the same node in the same place.
-
-On touch screens, use two fingers to zoom and pan. A second finger cancels an unfinished node
-drag; finishing a gesture does not also click or edit a node. In a locked map, one finger can
-pan from a node as well as empty space; tapping still selects or locates it.
-
-*Branches on both sides* splits the root's branches into two balanced columns **by subtree size**.
-
-## Settings
-
-| Toggle | Default | What it does |
-| --- | --- | --- |
-| 单击即跳转 (Click to jump) | On | Clicking a node scrolls the visible note to the matching heading or list item and highlights it in both Editing and Reading view (focus stays on the map); after you create / rename / delete / drag a node, the note also stays at that node. **It only scrolls a note that is already visible on screen** — it never opens a tab, never splits a pane, never pulls a background tab to the front. Turn it off and a click only selects |
-| Tab mindmap | Keep current note | Follow, keep the current note, or use separate tabs per note |
-| Sidebar mindmap | Follow current note | Follow or keep the current note |
-| 优雅动画 (Smooth animation) | On | Nodes and edges move together. Disabled above 250 visible nodes or when the system requests reduced motion |
-| Blank lines between headings (Strict blank lines) | Off | When enabled, adding / moving nodes pads adjacent headings to 3 blank lines apart |
-| Show numbered / bulleted list nodes | Off | Control visibility of each list type independently |
-| Deep node format | Bulleted list | Choose the list syntax for newly written nodes at level 7 or deeper |
-| 记住每篇笔记的打开方式 (Remember how each note opens) | On | A note converted with **Open as mindmap** opens as a mindmap next time, in whichever tab it appears; **Open as note** restores it, in the Reading / Editing mode it had when converted. The record lives only in the plugin's `data.json` and is migrated or cleaned up when the note is renamed, moved or deleted. Switching form does not enter tab history, so *Back* / *Forward* move between notes only |
-
-Styles — shape, colour scheme, **colour by level**, font size, horizontal and vertical gaps,
-branch style (**straight / diagonal / elbow**) — come in two levels, **global** and **per-note**: a note with
-no style of its own uses the global one. While the style window is open, dragging a slider
-previews live, and *Cancel* restores. Per-note styles are keyed by file path and are migrated or
-cleaned up automatically when you rename, move or delete a note.
-
-## Performance
-
-Pan and zoom update a single container transform; edges share one path and node events are delegated. Animation is disabled above 250 visible nodes or when reduced motion is requested.
-
-The repository includes a [1000-node stress note](bench/1000节点压力测试笔记.md). Automated tests cover parsing, layout and editing; use **Performance self-check** in Obsidian to measure actual rendering, or **Follow self-check** to diagnose note-following issues.
-
-## Known limitations
-
-- Node titles stay lightweight; body cards offer Markdown reading and source editing, without the full Obsidian Live Preview editor.
-- Collapsed state is not persisted; switching notes resets it.
-- Task markers remain part of the item text; ordered and bulleted list formats are preserved.
-- Multi-select (`Ctrl/⌘ + click`) supports deletion and branch clipboard operations, but not batch drag.
-
-## Development
-
-```bash
-npm run dev        # watch build
-npm run typecheck  # strict type-check
-npm test           # unit + integration tests
-```
-
-`core/` and `layout/` contain pure logic without Obsidian imports; `doc/` handles document I/O and note-view integration, `view/` manages map interaction, and `settings/` owns settings, styles and preferences.
-
-To install a dev build into a vault without copying three files by hand every round:
-
-```bash
-npm run deploy "D:\your vault"   # remembers the target in deploy.json (git-ignored)
-npm run deploy                   # afterwards: build + install into the remembered vaults
-```
-
-It overwrites only `main.js`, `manifest.json` and `styles.css` — never `data.json`, never a note.
-If the vault already has this plugin under a differently-named folder, it reuses that folder
-rather than creating a second copy with the same plugin id.
-
-Before publishing, run `npm test` and `npm run build`. Keep `manifest.json`,
-`package.json`, `package-lock.json` and `versions.json` in sync, then attach
-`main.js`, `manifest.json` and `styles.css` to the `1.3.9` GitHub release.
-**The tag carries no `v` prefix** — Obsidian looks releases up by the bare version number.
-
-## What's new
-
-### v1.3.9
-
-- Fixed local recovery of body drafts and per-note heading depth on older Obsidian versions.
-- Improved body card docking, stacking, and autosave in pop-out windows.
-- Added native settings search on Obsidian 1.13 and later.
-
-### v1.3.8
-
-- Simplified body cards and node context menus. Resize floating cards from any edge or corner. Fixed sizing when docking.
-- Fixed the body panel stealing keyboard focus and incorrect targets for multi-selection menus and list-branch pastes.
-- Fixed search and expansion with heading filters, navigation when a note is open in multiple tabs, and missing node underlines in exports.
-
-### v1.3.7
-
-Body cards open in edit mode, autosave after a pause and close with Escape while preserving unsaved drafts. Keep multiple cards open, move and resize them, or dock a panel beside/below the map. Save status lives in the header; the body setting updates immediately. Heading range lives in the toolbar and is remembered per note. Body writes preserve the source editor viewport.
-
-### v1.3.6
-
-- Optional node body cards with Markdown preview, source editing, autosave and a pinned panel that docks below the map in narrow views.
-- Two-way body synchronization, IME-aware saving, conflict protection and device-local draft recovery. Drafts are stored in Obsidian local storage, not in notes or synced plugin settings.
-- Copy/cut/paste whole branches, including body text and folded descendants. Ctrl/Cmd+Shift+V pastes as a sibling. Text editors retain ordinary text shortcuts.
-- One expand/collapse button with H1–H6 range choices, an initial-range setting and configurable commands.
-- Fix list-body boundaries and indentation, subtree depth validation, stale writes and the last drag frame. Reduce unnecessary layout work and settle zoom transforms automatically.
-
-Enable **Node body** in settings. A heading body ends at the next actual heading and includes intervening lists. List bodies follow the item's Markdown block. Changes autosave after a pause; Ctrl/Cmd+S saves immediately. Conflicts keep the draft instead of overwriting the source. Reopen the original node to recover a draft. The editor is Markdown source with a reading-mode toggle, not the full Obsidian Live Preview editor.
-
-Internal cross-note clipboard operations resolve supported relative links against their source. External clipboard text has no source path, so its links remain unchanged.
-
-### v1.3.5
-
-- **Opening maps**. Follow the active note, keep one note fixed, or open separate map tabs per note. The sidebar has its own follow setting.
-- **Node formatting**. Render inline code and supported inline HTML colors, superscripts, and subscripts.
-- **Lists**. Show bulleted and numbered items independently, add either type from the node menu, and choose the Markdown list format for new deep nodes.
-- **Appearance**. Customize the canvas, connectors, and level colors. Preview changes, restore defaults, and apply them to one note or all notes.
-- **Export**. Export directly to PNG, SVG, or PDF, with controls for branches, background, padding, image quality, and PDF page size.
-
-### v1.3.4
-
-- **Map locking**: Remember manual locks per note; Reading view forces locking. Locked maps prevent editing while still showing live note changes.
-- **Layout settings**: Move branch direction into Style settings, with global/per-note saving, live preview and Cancel.
-- **Viewport memory**: Restore each note’s zoom and position; show a nearby node if the saved region is empty.
-- **Touch improvements**: Add pinch zoom and two-finger pan, reduce drag conflicts and accidental clicks, and enlarge toolbar/fold touch targets.
-
-### v1.3.3
-
-- Add map-only undo/redo and search-result navigation/highlighting; refine level colors and node/edge animation.
-- Update default styles and options while preserving existing settings and per-note styles.
-
-### v1.3.2
-
-- Remember how each note opens, distinguish following and pinned maps, and fix stale content after switching notes.
-- Improve in-place conversion and tab history without opening duplicate tabs.
-
-### v1.3.1
-
-- Improve click-to-locate in Reading view and add inline math rendering.
-
-### v1.3.0
-
-- Add Chinese/English UI, optional list nodes and level colors.
-
-See [Releases](../../releases) for earlier versions.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+[Release history](https://github.com/cimuyang/outline-mindmap/releases) · [MIT license](LICENSE)

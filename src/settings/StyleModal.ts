@@ -1,8 +1,10 @@
-import { Modal, Setting, type App } from 'obsidian'
+import { Modal, Setting, type ToggleComponent, type App } from 'obsidian'
+import { readFont, headingFont } from '../view/measure'
+import { label } from '../view/strings'
 import { t, type MsgKey } from '../i18n'
 import type { BranchStyle, LayoutDirection } from '../layout/types'
 import {
-  DEFAULT_STYLE,
+  DEFAULT_STYLE, DEFAULT_HEADING_SIZES,
   STYLE_LIMITS,
   type ColorScheme,
   type MindmapStyle,
@@ -14,6 +16,7 @@ const SHAPE_LABELS: Record<NodeShape, MsgKey> = {
   rounded: 'shape.rounded',
   pill: 'shape.pill',
   underline: 'shape.underline',
+  text: 'shape.text',
 }
 
 const DIRECTION_LABELS: Record<LayoutDirection, MsgKey> = {
@@ -34,6 +37,7 @@ const SCHEME_LABELS: Record<ColorScheme, MsgKey> = {
 }
 
 export class StyleModal extends Modal {
+  private colorToggle?: ToggleComponent
   private readonly draft: MindmapStyle
 
   /**
@@ -116,8 +120,20 @@ export class StyleModal extends Modal {
     const details = host.createEl('details', { cls: 'om-style-section' })
     details.createEl('summary', { text: t('style.customColors') })
     const color = (label: string, value: string, update: (value: string) => void) => {
-      new Setting(details).setName(label)
-        .addColorPicker(picker => picker.setValue(value || '#808080').onChange(update))
+      const row = new Setting(details).setName(label)
+      const hint = row.controlEl.createSpan({ cls: 'om-color-source', text: t('style.themeColor') })
+      hint.hidden = !!value
+      row.addColorPicker(picker => {
+        const input = row.controlEl.querySelector('input[type=color]')
+        input?.setAttribute('aria-label', label)
+        input?.toggleClass('om-color-inherited', !value)
+        if (value) picker.setValue(value)
+        picker.onChange(next => {
+          hint.hidden = true
+          input?.removeClass('om-color-inherited')
+          update(next)
+        })
+      })
     }
     color(t('style.background'), this.draft.background ?? '', background => this.update({ background }))
     color(t('style.edges'), this.draft.edgeColor ?? '', edgeColor => this.update({ edgeColor }))
@@ -126,12 +142,15 @@ export class StyleModal extends Modal {
         const levelColors = Array.from({ length: 6 }, (_, level) => this.draft.levelColors?.[level] ?? '')
         levelColors[i] = value
         this.update({ levelColors, colorByLevel: true })
+        this.colorToggle?.setValue(true)
       })
     }
     new Setting(details).addButton(button => button.setButtonText(t('style.resetColors')).onClick(() => {
       this.update({ background: '', edgeColor: '', levelColors: [] })
       details.remove()
       this.buildPalette(host)
+      const palette = host.lastElementChild as HTMLDetailsElement | null
+      if (palette) palette.open = true
     }))
   }
 
@@ -230,9 +249,20 @@ export class StyleModal extends Modal {
     new Setting(host)
       .setName(t('style.levelColors'))
       .setDesc(t('style.levelColorsDesc'))
-      .addToggle((s) =>
-        s.setValue(this.draft.colorByLevel).onChange((v) => this.update({ colorByLevel: v })),
-      )
+      .addToggle(s => {
+        this.colorToggle = s
+        s.setValue(this.draft.colorByLevel).onChange(v => this.update({ colorByLevel: v }))
+      })
+    const typography = host.createEl('details', { cls: 'om-style-section om-heading-controls' })
+    typography.createEl('summary', { text: label('自定义标题字号', 'Customize heading sizes') })
+    typography.hidden = !this.draft.sizeByHeading
+    new Setting(host).setName(label('按标题级别调整字号', 'Size headings by level'))
+      .setDesc(label('突出主标题，可在下方调整 H1–H6。', 'Emphasize headings and fine-tune H1–H6 below.'))
+      .addToggle(toggle => toggle.setValue(this.draft.sizeByHeading).onChange(value => {
+        typography.hidden = !value
+        this.update({ sizeByHeading: value })
+      }))
+    const refreshSizes = this.buildHeadingSizes(typography)
 
     new Setting(details)
       .setName(t('style.fontScale'))
@@ -245,9 +275,44 @@ export class StyleModal extends Modal {
             STYLE_LIMITS.fontScale.step,
           )
           .setValue(this.draft.fontScale)
-          .onChange((v) => this.update({ fontScale: v })),
+          .onChange(v => { this.update({ fontScale: v }); refreshSizes() }),
       )
     host.appendChild(details)
+    host.appendChild(typography)
+  }
+
+  private buildHeadingSizes(panel: HTMLElement): () => void {
+    const refresh: Array<(base: ReturnType<typeof readFont>) => void> = []
+    const sync = () => {
+      const base = readFont(this.modalEl, this.draft.fontScale)
+      refresh.forEach(update => update(base))
+    }
+    DEFAULT_HEADING_SIZES.forEach((_, i) => {
+      const row = new Setting(panel).setName('H' + (i + 1))
+      row.addSlider(slider => {
+        slider.setLimits(75, 200, 0.25)
+        slider.sliderEl.setAttribute('aria-label', 'H' + (i + 1))
+        const value = row.controlEl.createEl('output', { cls: 'om-size-value' })
+        refresh.push(base => {
+          const percent = this.draft.headingSizes[i]!
+          slider.setValue(percent)
+          value.textContent = percent + '% · ' + headingFont(base, percent).size + ' px'
+          slider.sliderEl.setAttribute('aria-valuetext', value.textContent)
+        })
+        slider.onChange(percent => {
+          const headingSizes = [...this.draft.headingSizes]
+          headingSizes[i] = percent
+          this.update({ headingSizes })
+          sync()
+        })
+      })
+    })
+    new Setting(panel).addButton(button => button.setButtonText(label('恢复默认字号', 'Reset heading sizes')).onClick(() => {
+      this.update({ headingSizes: DEFAULT_HEADING_SIZES })
+      sync()
+    }))
+    sync()
+    return sync
   }
 
   /**

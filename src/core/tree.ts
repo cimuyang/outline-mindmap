@@ -329,6 +329,7 @@ export function moveSubtree(
   newParentId: string | null,
   indexInParent: number,
   options: ParseOptions,
+  targetDepth?: number,
 ): EditPlan {
   const node = mustGet(tree, id)
   const newParent = newParentId === null ? null : mustGet(tree, newParentId)
@@ -369,7 +370,7 @@ export function moveSubtree(
     insertAt > greedyStart && insertAt <= blockStart ? blockStart : greedyStart
 
   // 第 3、4 步：新的 depth 与 kind
-  const newDepth = newParent ? newParent.depth + 1 : 1
+  const newDepth = targetDepth ?? (newParent ? newParent.depth + 1 : 1)
   assertWithinHeadings(newDepth, maxDepthDrop(node), options.listNodes || !!options.orderedListNodes)
   const newKind: NodeKind = newParent ? forcedKind(newDepth, newParent, node.kind) : 'heading'
 

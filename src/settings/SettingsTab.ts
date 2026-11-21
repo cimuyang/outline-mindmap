@@ -4,7 +4,7 @@
  * 【所有配置存在插件自身的 data.json，绝不写进笔记】（第 1 章红线）。
  */
 
-import { PluginSettingTab, Setting, type App, type Plugin, type TFile, type WorkspaceLeaf } from 'obsidian'
+import { Notice, PluginSettingTab, Setting, type App, type Plugin, type TFile, type WorkspaceLeaf } from 'obsidian'
 import { label } from '../view/strings'
 import { t, type MsgKey } from '../i18n'
 import type { FileHistory } from '../doc/FileHistory'
@@ -163,6 +163,10 @@ export class MindmapSettingTab extends PluginSettingTab {
         },
       ] },
       { type: 'group', heading: t('settings.interaction'), items: [
+        { name: label('节点移动快捷键', 'Branch movement hotkeys'),
+          desc: label('上移、下移、提升或降低选中分支。', 'Reorder, promote or demote the selected branch.'),
+          render: row => { row.addButton(button => button.setButtonText(label('配置', 'Configure')).onClick(() => this.openMovementHotkeys())) },
+        },
         this.toggle('settings.clickToJump', 'settings.clickToJumpDesc', 'clickToJump'),
         this.toggle('settings.gracefulAnimation', 'settings.gracefulAnimationDesc', 'gracefulAnimation'),
       ] },
@@ -170,6 +174,22 @@ export class MindmapSettingTab extends PluginSettingTab {
   }
 
   override getSettingDefinitions() { return this.groups() }
+
+  private openMovementHotkeys(): void {
+    // Older hosts expose the native hotkey page through the settings controller.
+    type HotkeyPage = { searchComponent?: { inputEl: HTMLInputElement } }
+    const settings = (this.app as App & { setting?: { openTabById?: (id: string) => HotkeyPage | undefined } }).setting
+    const page = settings?.openTabById?.('hotkeys')
+    const query = label('移动分支 ·', 'Move branch ·')
+    const input = page?.searchComponent?.inputEl
+    if (input) {
+      input.value = query
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.focus()
+    } else {
+      new Notice(label('请在设置 → 快捷键中搜索「移动分支」。', 'Search for “Move branch” in Settings → Hotkeys.'))
+    }
+  }
 
   override display(): void {
     this.containerEl.empty()

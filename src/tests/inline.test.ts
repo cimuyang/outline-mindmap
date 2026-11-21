@@ -12,6 +12,14 @@ const plain = (text: string) => ({
 })
 
 describe('parseInline', () => {
+  it('keeps color markers out of rendered text only within a paired highlight', () => {
+    const parts = parseInline('沈燮元==🔵版本目录学家==98岁')
+    expect(parts.map(part => part.text)).toEqual(['沈燮元', '版本目录学家', '98岁'])
+    expect(tagsFor(parts[1]!)).toEqual([{ tag: 'mark', cls: 'om-highlight-blue' }])
+    expect(parseInline('==🔵甲====🔴乙==').map(part => part.highlightColor)).toEqual(['blue', 'red'])
+    expect(plainText('🔵甲 `==🔵乙==` ==🔵未闭合')).toBe('🔵甲 ==🔵乙== ==🔵未闭合')
+  })
+
   it('renders code spans literally and preserves adjacent text', () => {
     expect(parseInline('前`` `**<span>**` ``后')).toEqual([
       plain('前'),

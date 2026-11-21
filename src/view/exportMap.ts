@@ -85,15 +85,21 @@ export async function exportMap(
       const parent = item.parentElement
       if (!parent || !value || parent.closest('[data-om-formula]')) continue
       const font = win.getComputedStyle(parent)
+      let textBackground = 'transparent'
+      for (let ancestor: HTMLElement | null = parent; ancestor && ancestor !== label; ancestor = ancestor.parentElement) {
+        if (ancestor.matches('.om-search-match')) continue
+        const color = win.getComputedStyle(ancestor).backgroundColor
+        if (color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)') { textBackground = color; break }
+      }
       range.selectNodeContents(item)
       const lines = range.getClientRects()
       const draw = (text: string, rect: DOMRect) => {
         if (!rect.width || !rect.height) return
         const baseline = y(rect.bottom) - (rect.height / scale - parseFloat(font.fontSize)) / 2
           - parseFloat(font.fontSize) * 0.16
-        if (font.backgroundColor !== 'rgba(0, 0, 0, 0)' && !parent.matches('.om-search-match')) {
+        if (textBackground !== 'transparent') {
           element('rect', { x: x(rect.left), y: y(rect.top), width: rect.width / scale,
-            height: rect.height / scale, rx: 2, fill: font.backgroundColor }, svg)
+            height: rect.height / scale, rx: 2, fill: textBackground }, svg)
         }
         const el = element('text', {
           x: x(rect.left), y: baseline, fill: font.color, 'font-family': font.fontFamily,
