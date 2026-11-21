@@ -8,7 +8,7 @@
 
 <br>
 
-![左侧是 Markdown 笔记，右侧是同一篇笔记的可编辑大纲思维导图](demo.gif)
+![左侧是 Markdown 笔记，右侧是同一篇笔记的可编辑大纲思维导图](demo.webp)
 
 </div>
 
