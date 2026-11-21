@@ -8,7 +8,7 @@
 
 <br>
 
-![An Obsidian note alongside its editable outline mind map](https://github.com/cimuyang/outline-mindmap/blob/main/demo.mp4)
+![An Obsidian note alongside its editable outline mind map](demo.webp)
 
 </div>
 
