@@ -8,7 +8,7 @@
 
 <br>
 
-![An Obsidian note alongside its editable outline mind map](demo.gif)
+![An Obsidian note alongside its editable outline mind map](demo.mp4)
 
 </div>
 
